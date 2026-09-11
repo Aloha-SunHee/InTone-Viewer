@@ -130,7 +130,6 @@
       height: 100%;
     }
 
-    /* 상단 텍스트 카드 */
     .text-card {
       background: #ffffff;
       border-radius: 10px;
@@ -190,7 +189,6 @@
       cursor: pointer;
     }
 
-    /* 흰색 카드 내 중앙에 배치되는 피드백 배너 */
     .feedback-banner {
       position: absolute;
       top: 50%;
@@ -243,8 +241,8 @@
       pointer-events: none;
     }
     .canvas-legend span { display: flex; align-items: center; gap: 4px; }
-    .legend-guide { width: 7px; height: 7px; background: #4ade80; border-radius: 2px; }
-    .legend-user  { width: 7px; height: 7px; background: #fb923c; border-radius: 2px; }
+    .legend-guide { width: 8px; height: 8px; background: #4ade80; border-radius: 2px; }
+    .legend-user  { width: 8px; height: 8px; background: #fb923c; border-radius: 2px; }
 
     .control-sidebar {
       width: 86px;
@@ -400,13 +398,11 @@
 
     <div class="main-body">
       <div class="content-left">
-        <!-- 흰색 카드 안에 피드백 배너 배치 -->
         <div class="text-card">
           <button class="sentence-guide-audio-btn" id="guidePlayBtn" onclick="playGuideAudio()">🔊 가이드 듣기</button>
           <div class="word-chunk-container" id="chunkContainer">
             <div class="empty-placeholder">상단의 [✏️ 문장 입력]을 눌러 연습할 문장을 넣어주세요.</div>
           </div>
-          <!-- 피드백 배너 -->
           <div id="feedbackBanner" class="feedback-banner"></div>
         </div>
 
@@ -473,8 +469,8 @@
 
   <script>
     const TONE_TEMPLATES = {
-      1: [4.8, 4.85, 4.8, 4.8],
-      2: [3.1, 3.2, 3.8, 4.85],
+      1: [4.85, 4.85, 4.85, 4.85],
+      2: [3.1, 3.25, 4.0, 4.85],
       3: [2.5, 1.4, 1.35, 2.0, 3.8],
       "3_half": [2.3, 1.6, 1.3, 1.25],
       4: [4.9, 4.2, 2.6, 1.25]
@@ -596,7 +592,7 @@
 
       const chunkWords = segmentChineseSyntax(rawText);
       const allSyllables = [];
-      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "의", "得", "地", "了", "着", "过"];
+      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
 
       chunkWords.forEach((word, wIdx) => {
         if (window.pinyinPro) {
@@ -684,6 +680,7 @@
       `).join("");
     }
 
+    // NHK 스타일: 도톰하고 매끄러운 곡선 렌더링
     function drawSmoothCurve(points, color, width) {
       if (!points || points.length < 2) return;
       ctx.save();
@@ -701,10 +698,10 @@
         const p2 = points[i + 1];
         const p3 = (i < points.length - 2) ? points[i + 2] : p2;
 
-        const cp1x = p1.x + (p2.x - p0.x) / 5.5;
-        const cp1y = p1.y + (p2.y - p0.y) / 5.5;
-        const cp2x = p2.x - (p3.x - p1.x) / 5.5;
-        const cp2y = p2.y - (p3.y - p1.y) / 5.5;
+        const cp1x = p1.x + (p2.x - p0.x) / 5.0;
+        const cp1y = p1.y + (p2.y - p0.y) / 5.0;
+        const cp2x = p2.x - (p3.x - p1.x) / 5.0;
+        const cp2y = p2.y - (p3.y - p1.y) / 5.0;
 
         ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
       }
@@ -716,7 +713,7 @@
       ctx.save();
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(x, y, 6.5, 0, Math.PI * 2);
+      ctx.arc(x, y, 7.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -772,7 +769,7 @@
           const sylStartX = chunkStartX + sIdx * sylSlotW + 4;
           const sylW = sylSlotW - 8;
 
-          // 1. 기준 가이드선 (초록)
+          // 1. 기준 가이드선 (녹색, 8px 두께)
           if (s.isDot) {
             const dotX = sylStartX + sylW / 2;
             const dotY = canvas.height - bottomPad - ((s.neutralPitch - 1) / 4) * plotHeight;
@@ -783,10 +780,10 @@
               const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
               return { x, y };
             });
-            drawSmoothCurve(pts, "#4ade80", 6.5);
+            drawSmoothCurve(pts, "#4ade80", 8.0);
           }
 
-          // 2. 학생 발음선 (오렌지)
+          // 2. 학습자 발음선 (오렌지색, 8px 두께)
           if (userSyllableCurves && userSyllableCurves[globalSylIdx]) {
             const uCurve = userSyllableCurves[globalSylIdx];
             if (uCurve && uCurve.length > 0) {
@@ -801,7 +798,7 @@
                   const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
                   return { x, y };
                 });
-                drawSmoothCurve(pts, "#fb923c", 6.5);
+                drawSmoothCurve(pts, "#fb923c", 8.0);
               }
             }
           }
@@ -1087,25 +1084,56 @@
       return { hasVoice: true, pitch: hz };
     }
 
+    // [화자 고유 음역 풀 스팬(Full-Range) 5도 정규화]
+    // 학습자의 최저음은 1.3도, 최고음은 4.85도(가이드 1성 높이)로 꽉 차게 확장
     function dynamicScaleHzArray(hzArray) {
       const validHz = hzArray.filter(h => h !== null && h > 0);
       if (validHz.length === 0) return hzArray.map(() => null);
 
       validHz.sort((a, b) => a - b);
-      const p5 = validHz[Math.floor(validHz.length * 0.05)];
-      const p95 = validHz[Math.floor(validHz.length * 0.95)];
+      // 상하위 5% 이상치 제거 후 순수 발성 범위 산출
+      const pMin = validHz[Math.floor(validHz.length * 0.05)];
+      const pMax = validHz[Math.floor(validHz.length * 0.95)];
 
-      const minSemi = 12 * Math.log2(p5);
-      const maxSemi = 12 * Math.log2(p95);
-      const semitoneRange = Math.max(8.0, maxSemi - minSemi);
+      const minSemi = 12 * Math.log2(pMin);
+      const maxSemi = 12 * Math.log2(pMax);
+      const semitoneRange = Math.max(5.0, maxSemi - minSemi);
 
       return hzArray.map(hz => {
         if (hz === null) return null;
         const curSemi = 12 * Math.log2(hz);
         let norm = (curSemi - minSemi) / semitoneRange;
         norm = Math.max(0, Math.min(1, norm));
-        return 1.4 + norm * 3.4;
+        // 1.3도(최저) ~ 4.85도(최고 1성 높이)로 매핑
+        return 1.3 + norm * 3.55;
       });
+    }
+
+    // [음절 궤적 단순화(NHK 스타일 핵심 4점 제어)]
+    function simplifySyllableToToneCurve(rawSeg) {
+      if (!rawSeg || rawSeg.length === 0) return [3.0, 3.0, 3.0, 3.0];
+      if (rawSeg.length <= 4) return resampleSegment(rawSeg, 28);
+
+      // 1. 이상치 및 스파이크 제거
+      const filtered = [...rawSeg];
+      for (let k = 1; k < filtered.length - 1; k++) {
+        if (Math.abs(filtered[k] - filtered[k - 1]) > 0.9 && Math.abs(filtered[k] - filtered[k + 1]) > 0.9) {
+          filtered[k] = (filtered[k - 1] + filtered[k + 1]) / 2;
+        }
+      }
+
+      // 2. 전체 음절을 4개의 균등 구간으로 나누어 각 구간의 중앙값(Median) 추출 (미세 떨림 제거)
+      const keyPoints = [];
+      const partLen = Math.floor(filtered.length / 4);
+      for (let p = 0; p < 4; p++) {
+        const slice = filtered.slice(p * partLen, (p === 3) ? filtered.length : (p + 1) * partLen);
+        slice.sort((a, b) => a - b);
+        const med = slice[Math.floor(slice.length / 2)];
+        keyPoints.push(med);
+      }
+
+      // 3. 추출된 4개의 단순 성조 골격을 부드러운 28포인트 곡선으로 보간
+      return resampleSegment(keyPoints, 28);
     }
 
     function alignAndNormalizeToChunks() {
@@ -1117,6 +1145,7 @@
         return;
       }
 
+      // 1. 거센 자음 기식 구간 브릿징
       const bridgedTones = [...dynamicScaledTones];
       for (let i = 1; i < bridgedTones.length - 1; i++) {
         if (bridgedTones[i] === null) {
@@ -1135,6 +1164,7 @@
         }
       }
 
+      // 2. 음절 세그먼트 분할
       const rawSegments = [];
       let currentSeg = [];
 
@@ -1163,9 +1193,7 @@
           const target = syllableSegments[maxIdx];
           const mid = Math.floor(target.length / 2);
           syllableSegments.splice(maxIdx, 1, target.slice(0, mid), target.slice(mid));
-        } else {
-          break;
-        }
+        } else break;
       }
 
       while (syllableSegments.length > totalSyllablesCount) {
@@ -1191,28 +1219,16 @@
         let seg = syllableSegments[s] || [];
 
         if (seg.length >= 4) {
-          const cut = Math.max(1, Math.floor(seg.length * 0.03));
+          const cut = Math.max(1, Math.floor(seg.length * 0.04));
           seg = seg.slice(cut, seg.length - cut);
 
-          while (seg.length > 3) {
-            const last = seg[seg.length - 1];
-            const prev = seg[seg.length - 2];
-            if (last - prev > 0.9) seg.pop();
-            else break;
-          }
-
-          for (let k = 1; k < seg.length - 1; k++) {
-            if (Math.abs(seg[k] - seg[k - 1]) > 1.2 && Math.abs(seg[k] - seg[k + 1]) > 1.2) {
-              seg[k] = (seg[k - 1] + seg[k + 1]) / 2;
-            }
-          }
-
-          userSyllableCurves.push(resampleSegment(seg, 28));
+          // 단순화된 성조 곡선 산출
+          userSyllableCurves.push(simplifySyllableToToneCurve(seg));
         } else {
           const guideFallback = allSentenceSyllables[s] && allSentenceSyllables[s].curvePoints 
             ? allSentenceSyllables[s].curvePoints[0] 
-            : 3.0;
-          userSyllableCurves.push(resampleSegment(seg.length > 0 ? seg : [guideFallback, guideFallback * 0.8], 28));
+            : 3.5;
+          userSyllableCurves.push(resampleSegment([guideFallback, guideFallback], 28));
         }
       }
     }
@@ -1263,7 +1279,7 @@
           }
           const avgSlopeError = slopeErrors.reduce((a, b) => a + b, 0) / slopeErrors.length;
           const corr = calcPearsonCorrelation(resampledGuide, userCurve);
-          let slopeScore = Math.max(0, 100 - avgSlopeError * 170);
+          let slopeScore = Math.max(0, 100 - avgSlopeError * 160);
           let shapeScore = Math.max(0, (corr + 1) * 50);
 
           totalScore += (slopeScore * 0.6 + shapeScore * 0.4);
