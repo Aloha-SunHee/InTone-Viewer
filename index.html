@@ -2,65 +2,62 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
   <title>李老师의 InTone Viewer</title>
   <script src="https://unpkg.com/pinyin-pro"></script>
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body {
-      font-family: 'Segoe UI', AppleSDGothicNeo-Regular, sans-serif;
+    html, body {
       margin: 0;
       padding: 0;
-      background: #f0fdf4; /* 편안한 미색/연한 민트 테마 */
-      color: #0f172a;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
       overflow: hidden;
+      background: #f0fdf4;
+      font-family: 'Segoe UI', AppleSDGothicNeo-Regular, sans-serif;
+      color: #0f172a;
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
-    /* 16:9 가로 메인 뷰포트 */
     .app-viewport {
       width: 100vw;
       height: 100vh;
+      height: 100dvh;
       max-width: 1020px;
-      max-height: 574px;
       background: #ffffff;
       display: flex;
       flex-direction: column;
       position: relative;
       overflow: hidden;
-      border-radius: 16px;
-      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-      border: 1px solid #e2e8f0;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
     }
 
-    /* 상단 네비게이션 헤더 (썸네일 확대에 맞춰 높이 78px로 확장) */
     .nav-bar {
-      height: 78px;
+      height: 54px;
+      min-height: 54px;
       background: #ffffff;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 18px;
+      padding: 0 14px;
       border-bottom: 1.5px solid #f1f5f9;
       flex-shrink: 0;
     }
     .brand-area {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 10px;
     }
-    /* 썸네일 크기를 68px로 확대 (핸드폰 가로모드에서도 큼직하게 식별) */
     .brand-thumb {
-      width: 68px;
-      height: 68px;
+      width: 44px;
+      height: 44px;
       border-radius: 50%;
       object-fit: cover;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.15);
-      border: 2px solid #fed7aa;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+      border: 1.5px solid #fed7aa;
       display: block;
       flex-shrink: 0;
       background: #ffffff;
@@ -71,74 +68,72 @@
       text-align: left;
     }
     .main-title {
-      font-size: 1.55rem;
+      font-size: 1.15rem;
       font-weight: 800;
       color: #f97316;
-      line-height: 1.15;
+      line-height: 1.1;
     }
     .sub-title {
-      font-size: 0.85rem;
+      font-size: 0.72rem;
       color: #64748b;
       font-weight: 600;
-      margin-top: 3px;
+      margin-top: 2px;
     }
 
     .nav-tools {
       display: flex;
-      gap: 8px;
+      gap: 6px;
     }
     .tool-btn {
       background: #f8fafc;
-      border: 1.5px solid #cbd5e1;
-      padding: 7px 14px;
-      border-radius: 8px;
-      font-size: 0.85rem;
+      border: 1px solid #cbd5e1;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
       font-weight: 700;
       cursor: pointer;
       color: #334155;
-      transition: all 0.15s;
     }
-    .tool-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+    .tool-btn:hover { background: #f1f5f9; }
 
-    /* 메인 2단 작업 영역 */
     .main-body {
       flex: 1;
       display: flex;
-      padding: 10px 14px 14px 14px;
-      gap: 12px;
-      height: calc(100% - 78px);
+      padding: 8px 10px 10px 10px;
+      gap: 8px;
+      min-height: 0;
       background: #f8fafc;
     }
 
-    /* 좌측 메인 (텍스트 카드 + 캔버스) */
     .content-left {
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 6px;
+      min-height: 0;
       height: 100%;
     }
 
-    /* 상단 텍스트 카드 */
     .text-card {
       background: #ffffff;
-      border-radius: 12px;
-      padding: 8px 16px;
+      border-radius: 10px;
+      padding: 6px 12px;
       display: flex;
       flex-direction: column;
       justify-content: center;
-      min-height: 85px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      min-height: 64px;
+      max-height: 72px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
       border: 1px solid #e2e8f0;
       position: relative;
+      flex-shrink: 0;
     }
     .word-chunk-container {
       display: flex;
       justify-content: flex-start;
-      gap: 22px;
+      gap: 16px;
       align-items: flex-end;
       overflow-x: auto;
-      padding-bottom: 2px;
     }
     .word-chunk {
       display: flex;
@@ -147,46 +142,44 @@
       flex-shrink: 0;
     }
     .chunk-hanzi {
-      font-size: 1.85rem;
+      font-size: 1.45rem;
       font-weight: 800;
       color: #1e293b;
-      letter-spacing: 2px;
+      letter-spacing: 1.5px;
       line-height: 1.1;
     }
     .chunk-pinyin {
-      font-size: 0.95rem;
+      font-size: 0.82rem;
       font-weight: 600;
       color: #0d9488;
-      margin-top: 2px;
+      margin-top: 1px;
     }
     .empty-placeholder {
       color: #94a3b8;
-      font-size: 0.95rem;
+      font-size: 0.85rem;
       font-weight: 600;
     }
     .sentence-guide-audio-btn {
       position: absolute;
-      top: 8px;
-      right: 10px;
+      top: 6px;
+      right: 8px;
       background: #f0fdfa;
       border: 1px solid #99f6e4;
       color: #0d9488;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 0.78rem;
+      padding: 3px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
       font-weight: 700;
       cursor: pointer;
     }
-    .sentence-guide-audio-btn:hover { background: #ccfbf1; }
 
-    /* 하단 캔버스 디스플레이 (바이올렛 감도는 딥 네이비 배경) */
     .canvas-card {
       flex: 1;
       background: #111827;
-      border-radius: 12px;
+      border-radius: 10px;
       position: relative;
       overflow: hidden;
-      box-shadow: inset 0 2px 6px rgba(0,0,0,0.4);
+      min-height: 0;
       border: 1px solid #1e293b;
     }
     canvas {
@@ -195,75 +188,69 @@
       display: block;
     }
 
-    /* 캔버스 상단 피드백 배너 */
     .feedback-banner {
       position: absolute;
-      top: 12px;
+      top: 8px;
       left: 50%;
       transform: translateX(-50%);
-      padding: 6px 20px;
-      border-radius: 20px;
+      padding: 4px 16px;
+      border-radius: 16px;
       font-weight: 800;
-      font-size: 1.35rem;
-      letter-spacing: 2px;
+      font-size: 1.15rem;
+      letter-spacing: 1.5px;
       display: none;
       z-index: 5;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
     .badge-great { background: #22c55e; color: white; }
     .badge-good { background: #0284c7; color: white; }
     .badge-fair { background: #f59e0b; color: white; }
     .badge-try { background: #64748b; color: white; }
 
-    /* 범례 라벨 */
     .canvas-legend {
       position: absolute;
-      bottom: 8px;
-      right: 14px;
+      bottom: 6px;
+      right: 10px;
       display: flex;
-      gap: 14px;
-      font-size: 0.75rem;
+      gap: 10px;
+      font-size: 0.68rem;
       font-weight: 600;
       color: #cbd5e1;
       pointer-events: none;
     }
-    .canvas-legend span { display: flex; align-items: center; gap: 5px; }
-    .legend-guide { width: 10px; height: 10px; background: #4ade80; border-radius: 2px; }
-    .legend-user { width: 10px; height: 10px; background: #fb923c; border-radius: 2px; }
+    .canvas-legend span { display: flex; align-items: center; gap: 4px; }
+    .legend-guide { width: 8px; height: 8px; background: #4ade80; border-radius: 2px; }
+    .legend-user { width: 8px; height: 8px; background: #fb923c; border-radius: 2px; }
 
-    /* 우측 세로 사이드 버튼 바 */
     .control-sidebar {
-      width: 110px;
+      width: 92px;
       background: #ffffff;
-      border-radius: 12px;
+      border-radius: 10px;
       display: flex;
       flex-direction: column;
-      padding: 10px;
-      gap: 10px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      padding: 6px;
+      gap: 6px;
       border: 1px solid #e2e8f0;
       flex-shrink: 0;
     }
     .side-btn {
       flex: 1;
-      border-radius: 10px;
+      border-radius: 8px;
       border: none;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 5px;
-      font-size: 0.9rem;
+      gap: 2px;
+      font-size: 0.8rem;
       font-weight: 800;
       cursor: pointer;
-      transition: all 0.15s;
     }
-    .side-btn svg { width: 28px; height: 28px; }
+    .side-btn svg { width: 22px; height: 22px; }
 
     .btn-rec {
       background: #fee2e2;
       color: #dc2626;
-      border: 1.5px solid #fca5a5;
+      border: 1px solid #fca5a5;
     }
     .btn-rec.recording {
       background: #dc2626;
@@ -273,7 +260,7 @@
     .btn-listen {
       background: #f0fdfa;
       color: #0d9488;
-      border: 1.5px solid #99f6e4;
+      border: 1px solid #99f6e4;
     }
     .btn-listen:disabled {
       background: #f8fafc;
@@ -284,7 +271,7 @@
     .btn-rep {
       background: #f8fafc;
       color: #475569;
-      border: 1.5px solid #cbd5e1;
+      border: 1px solid #cbd5e1;
     }
 
     @keyframes pulse {
@@ -293,7 +280,6 @@
       100% { opacity: 1; }
     }
 
-    /* 모바일 세로모드 회전 안내 레이어 */
     .rotate-overlay {
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
@@ -308,9 +294,9 @@
       padding: 20px;
     }
     .rotate-icon {
-      width: 50px;
-      height: 50px;
-      margin-bottom: 16px;
+      width: 44px;
+      height: 44px;
+      margin-bottom: 12px;
       animation: spinPhone 2s infinite ease-in-out;
     }
     @keyframes spinPhone {
@@ -322,7 +308,6 @@
       .rotate-overlay { display: flex; }
     }
 
-    /* 모달 */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -336,46 +321,42 @@
     .modal-content {
       background: white;
       width: 90%;
-      max-width: 540px;
-      border-radius: 16px;
-      padding: 20px;
-      box-shadow: 0 20px 25px rgba(0,0,0,0.15);
+      max-width: 500px;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 12px 20px rgba(0,0,0,0.15);
     }
     .modal-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
-    .modal-header h3 { margin: 0; font-size: 1.15rem; color: #1e293b; }
-    .close-btn { background: none; border: none; font-size: 1.4rem; cursor: pointer; color: #94a3b8; }
-    .input-row { display: flex; gap: 8px; margin-bottom: 12px; }
-    .input-row input { flex: 1; padding: 10px; border-radius: 6px; border: 1.5px solid #cbd5e1; font-size: 0.95rem; }
+    .modal-header h3 { margin: 0; font-size: 1.05rem; color: #1e293b; }
+    .close-btn { background: none; border: none; font-size: 1.3rem; cursor: pointer; color: #94a3b8; }
+    .input-row { display: flex; gap: 6px; margin-bottom: 10px; }
+    .input-row input { flex: 1; padding: 8px; border-radius: 6px; border: 1.5px solid #cbd5e1; font-size: 0.9rem; }
     .input-row input:focus { border-color: #0d9488; outline: none; }
-    .input-row button { padding: 10px 16px; background: #0f766e; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-    .chips-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-    .chips-row span { background: #f1f5f9; padding: 5px 10px; border-radius: 12px; font-size: 0.8rem; cursor: pointer; border: 1px solid #e2e8f0; }
+    .input-row button { padding: 8px 14px; background: #0f766e; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    .chips-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+    .chips-row span { background: #f1f5f9; padding: 4px 8px; border-radius: 10px; font-size: 0.75rem; cursor: pointer; border: 1px solid #e2e8f0; }
     .chips-row span:hover { background: #ffedd5; color: #ea580c; }
-    .report-textarea { width: 100%; height: 180px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: monospace; font-size: 0.85rem; resize: none; background: #f8fafc; }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-    .modal-actions button { padding: 8px 14px; font-size: 0.85rem; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
+    .report-textarea { width: 100%; height: 140px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: monospace; font-size: 0.8rem; resize: none; background: #f8fafc; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+    .modal-actions button { padding: 6px 12px; font-size: 0.8rem; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
   </style>
 </head>
 <body>
 
-  <!-- 모바일 세로모드 회전 유도 -->
   <div class="rotate-overlay">
     <svg class="rotate-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V7M4 7l8-4 8 4M4 7l8 4 8-4"/>
     </svg>
-    <h2 style="margin:0 0 8px 0; font-size: 1.3rem;">화면을 가로로 돌려주세요</h2>
-    <p style="margin:0; font-size:0.9rem; color: #cbd5e1;">운율곡선을 시각적으로 비교하기 위해 16:9 가로 화면이 필요합니다.</p>
+    <h2 style="margin:0 0 6px 0; font-size: 1.2rem;">화면을 가로로 돌려주세요</h2>
+    <p style="margin:0; font-size:0.85rem; color: #cbd5e1;">정확한 인토네이션 비교를 위해 16:9 가로 화면이 필요합니다.</p>
   </div>
 
-  <!-- 메인 뷰포트 -->
   <div class="app-viewport">
-    
-    <!-- 네비게이션 헤더 (확대된 썸네일 탑재) -->
     <div class="nav-bar">
       <div class="brand-area">
         <img src="profile1.png" alt="李老师" class="brand-thumb" onerror="this.src='profile.png'" />
@@ -386,15 +367,12 @@
       </div>
       <div class="nav-tools">
         <button class="tool-btn" onclick="openInputModal()">✏️ 문장 입력</button>
-        <button class="tool-btn" onclick="triggerFileUpload()">🎧 음성 파일 등록</button>
+        <button class="tool-btn" onclick="triggerFileUpload()">🎧 음성 파일</button>
         <input type="file" id="audioFileInput" accept="audio/*" style="display:none;" onchange="handleAudioUpload(event)" />
       </div>
     </div>
 
-    <!-- 2단 본문 -->
     <div class="main-body">
-      
-      <!-- 좌측 콘텐츠 -->
       <div class="content-left">
         <div class="text-card">
           <button class="sentence-guide-audio-btn" id="guidePlayBtn" onclick="playGuideAudio()">🔊 가이드 듣기</button>
@@ -403,10 +381,9 @@
           </div>
         </div>
 
-        <!-- 캔버스 -->
-        <div class="canvas-card">
+        <div class="canvas-card" id="canvasCard">
           <div id="feedbackBanner" class="feedback-banner"></div>
-          <canvas id="pitchCanvas" width="800" height="300"></canvas>
+          <canvas id="pitchCanvas"></canvas>
           <div class="canvas-legend">
             <span><div class="legend-guide"></div> 기준 가이드 (녹색)</span>
             <span><div class="legend-user"></div> 내 발음 (오렌지)</span>
@@ -414,7 +391,6 @@
         </div>
       </div>
 
-      <!-- 우측 컨트롤 바 -->
       <div class="control-sidebar">
         <button id="recBtn" class="side-btn btn-rec" onclick="toggleRecord()">
           <svg fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>
@@ -429,11 +405,9 @@
           <span>Report</span>
         </button>
       </div>
-
     </div>
   </div>
 
-  <!-- 문장 입력 모달 -->
   <div id="inputModal" class="modal-overlay">
     <div class="modal-content">
       <div class="modal-header">
@@ -454,7 +428,6 @@
     </div>
   </div>
 
-  <!-- 리포트 모달 -->
   <div id="reportModal" class="modal-overlay">
     <div class="modal-content">
       <div class="modal-header">
@@ -471,12 +444,13 @@
   </div>
 
   <script>
+    // [음성학적 피치 궤적 템플릿] (완만한 굴곡형 제어점)
     const TONE_TEMPLATES = {
-      1: [4.8, 4.8, 4.8, 4.8],
-      2: [3.2, 3.6, 4.2, 4.8],
-      3: [2.5, 1.4, 2.0, 3.8],
-      "3_half": [2.4, 1.8, 1.4, 1.2],
-      4: [4.8, 3.8, 2.4, 1.4]
+      1: [4.8, 4.85, 4.8, 4.8],         // 1성: 55 고평조
+      2: [3.1, 3.2, 3.8, 4.85],         // 2성: 35 중고상승조
+      3: [2.5, 1.4, 1.35, 2.0, 3.8],    // 3성 원형: 214 강승조
+      "3_half": [2.3, 1.6, 1.3, 1.25],  // 반3성: 21 완만 저하강조
+      4: [4.9, 4.2, 2.6, 1.25]          // 4성: 51 전하강조
     };
 
     let activeChunks = [];
@@ -484,6 +458,7 @@
     let practiceHistory = [];
 
     const canvas = document.getElementById("pitchCanvas");
+    const canvasCard = document.getElementById("canvasCard");
     const ctx = canvas.getContext("2d");
     const recBtn = document.getElementById("recBtn");
     const recBtnText = document.getElementById("recBtnText");
@@ -509,6 +484,14 @@
     let isGuidePlaying = false;
 
     let normalizedUserSegments = [];
+
+    function resizeCanvas() {
+      if (!canvasCard) return;
+      canvas.width = canvasCard.clientWidth;
+      canvas.height = canvasCard.clientHeight;
+      drawCanvas();
+    }
+    window.addEventListener("resize", resizeCanvas);
 
     function openInputModal() {
       document.getElementById("modalInput").value = currentSentence;
@@ -536,6 +519,7 @@
       document.getElementById("audioFileInput").click();
     }
 
+    // 문법 성분 분절
     function segmentChineseSyntax(text) {
       if (text.includes(" ")) {
         return text.split(/\s+/).filter(w => /[\u4e00-\u9fa5a-zA-Z]/.test(w));
@@ -576,6 +560,7 @@
       return result;
     }
 
+    // [음성학적 알고리즘] 성조 및 경성(선행 음절 연동) 산출
     function applySentence(rawText) {
       clearPlaybackAudio();
       hideFeedback();
@@ -584,27 +569,28 @@
 
       const chunkWords = segmentChineseSyntax(rawText);
       const allSyllables = [];
-      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "의", "得", "地", "了", "着", "过"];
+      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
 
       chunkWords.forEach((word, wIdx) => {
         if (window.pinyinPro) {
           const pData = pinyinPro.pinyin(word, { type: 'all' });
           pData.forEach(item => {
             if (/[\u4e00-\u9fa5a-zA-Z]/.test(item.origin)) {
-              const isParticle = particles.includes(item.origin);
-              const tone = isParticle ? 0 : (item.num || 0);
+              const isPart = particles.includes(item.origin);
+              const toneNum = isPart ? 0 : (item.num || 0);
               allSyllables.push({
                 wordIdx: wIdx,
                 char: item.origin,
                 pinyin: item.pinyin,
-                tone: tone,
-                isParticle: isParticle
+                tone: toneNum,
+                isParticle: isPart
               });
             }
           });
         }
       });
 
+      // 1. 변조 및 반3성 규칙 적용
       for (let i = 0; i < allSyllables.length; i++) {
         const cur = allSyllables[i];
         const next = (i < allSyllables.length - 1) ? allSyllables[i + 1] : null;
@@ -613,49 +599,47 @@
           if (next) {
             if (next.tone === 3) {
               cur.actualTone = 2;
-              cur.baseCurve = TONE_TEMPLATES[2];
             } else {
-              cur.actualTone = "3_half";
-              cur.baseCurve = TONE_TEMPLATES["3_half"];
+              cur.actualTone = "3_half"; // 뒤에 다른 글자가 오면 반3성
             }
           } else {
             cur.actualTone = 3;
-            cur.baseCurve = TONE_TEMPLATES[3];
           }
-        } else if (cur.tone === 0 || cur.isParticle) {
-          cur.actualTone = 0;
-          cur.baseCurve = null;
         } else {
           cur.actualTone = cur.tone;
-          cur.baseCurve = TONE_TEMPLATES[cur.tone] || TONE_TEMPLATES[1];
         }
       }
 
+      // 2. [음성학적 규칙] 경성 피치 위치 결정
+      for (let i = 0; i < allSyllables.length; i++) {
+        const cur = allSyllables[i];
+        if (cur.actualTone === 0) {
+          const prev = (i > 0) ? allSyllables[i - 1] : null;
+          let neutralPitch = 2.0; // 기본
+          if (prev) {
+            const pt = prev.actualTone;
+            if (pt === 1) neutralPitch = 2.1;           // 1성 뒤: 2도
+            else if (pt === 2) neutralPitch = 3.0;      // 2성 뒤: 3도
+            else if (pt === 3 || pt === "3_half") neutralPitch = 4.0; // 3성 뒤: 4도
+            else if (pt === 4) neutralPitch = 1.3;      // 4성 뒤: 1도
+          }
+          cur.neutralPitch = neutralPitch;
+          cur.isDot = true; // 경성은 점(Dot) 렌더링
+        } else {
+          cur.isDot = false;
+          cur.curvePoints = TONE_TEMPLATES[cur.actualTone] || TONE_TEMPLATES[1];
+        }
+      }
+
+      // 3. 음절 단위 독립 배열 구조로 저장 (음절 간 M자형 연결선 완전 제거)
       chunkWords.forEach((word, wIdx) => {
         const syls = allSyllables.filter(s => s.wordIdx === wIdx);
         if (syls.length === 0) return;
 
-        let continuousCurve = [];
-        syls.forEach(s => {
-          if (s.actualTone === 0 || s.isParticle) {
-            const lastVal = continuousCurve.length > 0 ? continuousCurve[continuousCurve.length - 1] : 2.5;
-            const tail1 = Math.max(1.2, lastVal * 0.85);
-            const tail2 = Math.max(1.1, lastVal * 0.70);
-            continuousCurve.push(tail1, tail2);
-          } else {
-            if (continuousCurve.length > 0) {
-              const lastVal = continuousCurve[continuousCurve.length - 1];
-              const nextVal = s.baseCurve[0];
-              continuousCurve.push((lastVal + nextVal) / 2);
-            }
-            continuousCurve = continuousCurve.concat(s.baseCurve);
-          }
-        });
-
         activeChunks.push({
           hanzi: syls.map(s => s.char).join(""),
           pinyin: syls.map(s => s.pinyin).join(" "),
-          curve: continuousCurve
+          syllables: syls // 음절 단위로 캔버스에 독립 드로잉
         });
       });
 
@@ -677,34 +661,76 @@
       `).join("");
     }
 
+    // [음성학적 베지에 곡선 스무딩 드로잉]
+    function drawSmoothCurve(points, color, width) {
+      if (points.length < 2) return;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = (i > 0) ? points[i - 1] : points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = (i < points.length - 2) ? points[i + 2] : p2;
+
+        const cp1x = p1.x + (p2.x - p0.x) / 5.5;
+        const cp1y = p1.y + (p2.y - p0.y) / 5.5;
+        const cp2x = p2.x - (p3.x - p1.x) / 5.5;
+        const cp2y = p2.y - (p3.y - p1.y) / 5.5;
+
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // [경성 도톰한 원형 점 렌더링]
+    function drawNeutralDot(x, y, color) {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     function drawCanvas() {
+      if (!canvas.width || !canvas.height) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const topPad = 30;
-      const bottomPad = 30;
+      const topPad = 24;
+      const bottomPad = 24;
       const plotHeight = canvas.height - topPad - bottomPad;
 
+      // 5도 성조 수평선
       ctx.lineWidth = 1;
       for (let level = 1; level <= 5; level++) {
         const y = canvas.height - bottomPad - ((level - 1) / 4) * plotHeight;
         ctx.strokeStyle = (level === 5 || level === 1) ? "#334155" : "#1e293b";
         ctx.beginPath();
-        ctx.moveTo(35, y);
-        ctx.lineTo(canvas.width - 20, y);
+        ctx.moveTo(30, y);
+        ctx.lineTo(canvas.width - 15, y);
         ctx.stroke();
 
         ctx.fillStyle = "#64748b";
-        ctx.font = "bold 11px sans-serif";
-        ctx.fillText(level + "도", 10, y + 4);
+        ctx.font = "bold 10px sans-serif";
+        ctx.fillText(level + "도", 8, y + 3);
       }
 
       const numChunks = activeChunks.length;
       if (numChunks === 0) return;
 
-      const marginX = 45;
+      const marginX = 35;
       const usableWidth = canvas.width - marginX * 2;
       const chunkWidth = usableWidth / numChunks;
 
+      // 성분 간 수직 구분선
       for (let i = 0; i <= numChunks; i++) {
         const x = marginX + i * chunkWidth;
         ctx.strokeStyle = "#1e293b";
@@ -714,52 +740,50 @@
         ctx.stroke();
       }
 
-      // [기준선] 밝은 녹색/라임 (#4ade80)
-      ctx.save();
-      ctx.strokeStyle = "#4ade80";
-      ctx.lineWidth = 7.5;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
+      // [기준 가이드 렌더링 - 밝은 네온 녹색 #4ade80]
       activeChunks.forEach((chunk, cIdx) => {
-        const segStartX = marginX + cIdx * chunkWidth + 14;
-        const segWidth = chunkWidth - 28;
+        const chunkStartX = marginX + cIdx * chunkWidth + 8;
+        const chunkInnerW = chunkWidth - 16;
+        const syls = chunk.syllables;
+        const numSyls = syls.length;
+        const sylSlotW = chunkInnerW / numSyls;
 
-        ctx.beginPath();
-        chunk.curve.forEach((val, pIdx) => {
-          const x = segStartX + (pIdx / (chunk.curve.length - 1)) * segWidth;
-          const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
-          if (pIdx === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+        syls.forEach((s, sIdx) => {
+          const sylStartX = chunkStartX + sIdx * sylSlotW + 4;
+          const sylW = sylSlotW - 8;
+
+          if (s.isDot) {
+            // 경성은 도톰한 점(Dot) 표기
+            const dotX = sylStartX + sylW / 2;
+            const dotY = canvas.height - bottomPad - ((s.neutralPitch - 1) / 4) * plotHeight;
+            drawNeutralDot(dotX, dotY, "#4ade80");
+          } else {
+            // 일반 음절은 매끄러운 베지에 곡선 드로잉 (M자 하강선 없음)
+            const pts = s.curvePoints.map((val, pIdx) => {
+              const x = sylStartX + (pIdx / (s.curvePoints.length - 1)) * sylW;
+              const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
+              return { x, y };
+            });
+            drawSmoothCurve(pts, "#4ade80", 6.5);
+          }
         });
-        ctx.stroke();
       });
-      ctx.restore();
 
-      // [학생선] 선명한 오렌지/다홍 (#fb923c)
+      // [학생 발음 렌더링 - 선명한 오렌지 #fb923c]
       if (normalizedUserSegments.length > 0) {
-        ctx.save();
-        ctx.strokeStyle = "#fb923c";
-        ctx.lineWidth = 7.5;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-
         normalizedUserSegments.forEach((segment, cIdx) => {
           if (!segment || segment.length === 0 || cIdx >= numChunks) return;
 
-          const segStartX = marginX + cIdx * chunkWidth + 14;
-          const segWidth = chunkWidth - 28;
+          const chunkStartX = marginX + cIdx * chunkWidth + 8;
+          const chunkInnerW = chunkWidth - 16;
 
-          ctx.beginPath();
-          segment.forEach((val, pIdx) => {
-            const x = segStartX + (pIdx / (segment.length - 1)) * segWidth;
+          const pts = segment.map((val, pIdx) => {
+            const x = chunkStartX + (pIdx / (segment.length - 1)) * chunkInnerW;
             const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
-            if (pIdx === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+            return { x, y };
           });
-          ctx.stroke();
+          drawSmoothCurve(pts, "#fb923c", 6.5);
         });
-        ctx.restore();
       }
     }
 
@@ -835,7 +859,7 @@
 
       merged.forEach((seg, idx) => {
         if (idx < activeChunks.length) {
-          activeChunks[idx].curve = resampleSegment(seg, 35);
+          activeChunks[idx].curvePoints = resampleSegment(seg, 35);
         }
       });
       drawCanvas();
@@ -1115,6 +1139,7 @@
       return resampled;
     }
 
+    // 유사도 비교 (음절별 성조 궤적 대조)
     function calculateSimilarityAndFeedback() {
       if (normalizedUserSegments.length === 0 || activeChunks.length === 0) return;
 
@@ -1122,11 +1147,18 @@
       let comparedCount = 0;
 
       for (let cIdx = 0; cIdx < activeChunks.length; cIdx++) {
-        const guideCurve = activeChunks[cIdx].curve;
+        const chunk = activeChunks[cIdx];
         const userCurve = normalizedUserSegments[cIdx];
         if (!userCurve || userCurve.length < 5) continue;
 
-        const resampledGuide = resampleSegment(guideCurve, userCurve.length);
+        // 기준 가이드 포인트들을 단일 시퀀스로 펼쳐 비교
+        let guidePoints = [];
+        chunk.syllables.forEach(s => {
+          if (s.isDot) guidePoints.push(s.neutralPitch);
+          else guidePoints = guidePoints.concat(s.curvePoints);
+        });
+
+        const resampledGuide = resampleSegment(guidePoints, userCurve.length);
         let slopeErrors = [];
         for (let i = 0; i < userCurve.length - 1; i++) {
           const guideSlope = resampledGuide[i + 1] - resampledGuide[i];
@@ -1235,8 +1267,7 @@
       if (event.target === document.getElementById("inputModal")) closeInputModal();
     };
 
-    // 초기 실행: 빈 화면 대기 상태 렌더링
-    drawCanvas();
+    setTimeout(resizeCanvas, 50);
   </script>
 </body>
 </html>
