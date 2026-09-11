@@ -204,7 +204,6 @@
       display: block;
     }
 
-    /* 피드백 배너 */
     .feedback-banner {
       position: absolute;
       top: 8px;
@@ -507,7 +506,6 @@
     let uploadedAudioElement = null;
     let isGuidePlaying = false;
 
-    // 음절 1:1 대응 학생 곡선 배열
     let userSyllableCurves = [];
 
     function resizeCanvas() {
@@ -756,7 +754,6 @@
         ctx.stroke();
       }
 
-      // [기준 가이드 - 초록색 & 학생 발음 - 오렌지색 동시 음절 슬롯 렌더링]
       let globalSylIdx = 0;
 
       activeChunks.forEach((chunk, cIdx) => {
@@ -770,7 +767,7 @@
           const sylStartX = chunkStartX + sIdx * sylSlotW + 4;
           const sylW = sylSlotW - 8;
 
-          // 1. 기준 가이드선 (초록)
+          // 기준 가이드선 (초록)
           if (s.isDot) {
             const dotX = sylStartX + sylW / 2;
             const dotY = canvas.height - bottomPad - ((s.neutralPitch - 1) / 4) * plotHeight;
@@ -784,7 +781,7 @@
             drawSmoothCurve(pts, "#4ade80", 6.5);
           }
 
-          // 2. 학생 발음선 (오렌지) - 음절 1:1 매칭
+          // 학생 발음선 (오렌지) - 독립 음절 렌더링
           if (userSyllableCurves && userSyllableCurves[globalSylIdx]) {
             const uCurve = userSyllableCurves[globalSylIdx];
             if (uCurve && uCurve.length > 0) {
@@ -1106,7 +1103,7 @@
       });
     }
 
-    // [음절 단위 1:1 정렬 및 연결선 완전 제거 알고리즘]
+    // [치솟는 직선 스파이크 및 이상치 제거가 적용된 정규화 알고리즘]
     function alignAndNormalizeToChunks() {
       const dynamicScaledTones = dynamicScaleHzArray(rawHzStream);
       const totalSyllablesCount = allSentenceSyllables.length;
@@ -1116,7 +1113,6 @@
         return;
       }
 
-      // 1. 발화 구간 추출
       const rawSegments = [];
       let currentSeg = [];
 
@@ -1131,7 +1127,6 @@
       }
       if (currentSeg.length >= 4) rawSegments.push(currentSeg);
 
-      // 2. 전체 연속 발화 배열 통합
       let combinedVoiceData = [];
       rawSegments.forEach(seg => {
         combinedVoiceData = combinedVoiceData.concat(seg);
@@ -1142,17 +1137,37 @@
         return;
       }
 
-      // 3. 문장 전체 음절 수로 정밀 균등 분할
       userSyllableCurves = [];
       const sylWindow = Math.floor(combinedVoiceData.length / totalSyllablesCount);
 
       for (let s = 0; s < totalSyllablesCount; s++) {
         let sylData = combinedVoiceData.slice(s * sylWindow, (s + 1) * sylWindow);
-        if (sylData.length >= 4) {
-          // 음절 앞뒤 8% 여백을 잘라내어 음절 사이의 M자형 연결 골짜기를 완전히 절삭
-          const cut = Math.floor(sylData.length * 0.08);
-          const trimmed = sylData.slice(cut, sylData.length - cut);
-          userSyllableCurves.push(resampleSegment(trimmed.length >= 3 ? trimmed : sylData, 28));
+
+        if (sylData.length >= 5) {
+          // 1. 음절 시작/끝단 자음 전이 구간(각 8%) 트리밍
+          const cut = Math.max(1, Math.floor(sylData.length * 0.08));
+          sylData = sylData.slice(cut, sylData.length - cut);
+
+          // 2. [치솟는 직선 스파이크 제거]: 음절 끝에서 급격히 위로 튀는 이상치(1도 초과 급상승) 절삭
+          while (sylData.length > 3) {
+            const last = sylData[sylData.length - 1];
+            const prev = sylData[sylData.length - 2];
+            // 이전 포인트 대비 0.85도 이상 급격히 치솟은 마지막 점 제거
+            if (last - prev > 0.85) {
+              sylData.pop();
+            } else {
+              break;
+            }
+          }
+
+          // 3. 이동 평균(Moving Average) 스무딩으로 잔여 옥타브 점프 글리치 완화
+          for (let k = 1; k < sylData.length - 1; k++) {
+            if (Math.abs(sylData[k] - sylData[k - 1]) > 1.2 && Math.abs(sylData[k] - sylData[k + 1]) > 1.2) {
+              sylData[k] = (sylData[k - 1] + sylData[k + 1]) / 2;
+            }
+          }
+
+          userSyllableCurves.push(resampleSegment(sylData, 28));
         } else {
           userSyllableCurves.push(resampleSegment(sylData, 28));
         }
@@ -1175,10 +1190,9 @@
       return resampled;
     }
 
-    // [평가 피드백 산출 및 배너 표시]
     function calculateSimilarityAndFeedback() {
       if (!userSyllableCurves || userSyllableCurves.length === 0 || allSentenceSyllables.length === 0) {
-        displayFeedbackBadge(10); // 기본 피드백
+        displayFeedbackBadge(10);
         return;
       }
 
@@ -1230,7 +1244,6 @@
       return den === 0 ? 0 : num / den;
     }
 
-    // [요청하신 피드백 등급 기준 반영]
     function displayFeedbackBadge(score) {
       feedbackBanner.style.display = "flex";
       let badgeClass = "", feedbackWord = "";
