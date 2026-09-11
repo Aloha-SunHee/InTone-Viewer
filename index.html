@@ -492,7 +492,7 @@
 
     let isRecording = false;
     let audioCtx, analyser, micStream;
-    let rawFrameStream = []; // { pitch, rms } 프레임 단위 보존
+    let rawFrameStream = [];
     let silenceStartTimestamp = null;
     let hasSpeechStarted = false;
     let animLoopId;
@@ -561,7 +561,7 @@
       const result = [];
       const suffixes = ["人", "们", "家", "员", "生", "子", "头", "儿"];
       const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
-      const pronouns = ["你", "我", "他", "她", " prejudice", "谁", "这", "那"];
+      const pronouns = ["你", "我", "他", "她", "谁", "这", "那"];
 
       for (let i = 0; i < tokens.length; i++) {
         let cur = tokens[i];
@@ -680,7 +680,6 @@
       `).join("");
     }
 
-    // NHK 스타일: 도톰하고 매끄러운 8px 곡선 렌더링
     function drawSmoothCurve(points, color, width) {
       if (!points || points.length < 2) return;
       ctx.save();
@@ -783,7 +782,7 @@
             drawSmoothCurve(pts, "#4ade80", 8.0);
           }
 
-          // 2. 학습자 발음선 (오렌지색, 8px) - 1:1 슬롯 고정
+          // 2. 학습자 발음선 (오렌지색, 8px)
           if (userSyllableCurves && userSyllableCurves[globalSylIdx]) {
             const uCurve = userSyllableCurves[globalSylIdx];
             if (uCurve && uCurve.length > 0) {
@@ -969,7 +968,6 @@
       const result = detectPitchAndVolume(buffer, audioCtx.sampleRate);
       const currentTime = performance.now();
 
-      // 피치와 음량(rms) 동시 기록
       rawFrameStream.push({
         pitch: result.hasVoice ? result.pitch : null,
         rms: result.rms
@@ -1088,24 +1086,30 @@
       return { hasVoice: true, pitch: hz, rms: rms };
     }
 
+    // [1성 중심 5도 앵커링 정규화 알고리즘]
     function dynamicScaleHzArray(hzArray) {
       const validHz = hzArray.filter(h => h !== null && h > 0);
       if (validHz.length === 0) return hzArray.map(() => null);
 
       validHz.sort((a, b) => a - b);
+      // 하위 5%를 화자의 1도 저음 바닥(pMin)으로 설정
       const pMin = validHz[Math.floor(validHz.length * 0.05)];
-      const pMax = validHz[Math.floor(validHz.length * 0.95)];
+      
+      // 상위 15%~30% 사이의 평탄한 고음역(1성 발화 대역)을 5도 앵커(pMax)로 포착
+      const pMax = validHz[Math.floor(validHz.length * 0.85)];
 
       const minSemi = 12 * Math.log2(pMin);
       const maxSemi = 12 * Math.log2(pMax);
-      const semitoneRange = Math.max(5.0, maxSemi - minSemi);
+      // 고음과 저음 사이의 유효 반음 폭
+      const semitoneRange = Math.max(4.0, maxSemi - minSemi);
 
       return hzArray.map(hz => {
         if (hz === null) return null;
         const curSemi = 12 * Math.log2(hz);
         let norm = (curSemi - minSemi) / semitoneRange;
+        // 1성 발화가 4.85도에 정확히 닿도록 정규화 범위를 1.2도 ~ 4.85도로 매핑
         norm = Math.max(0, Math.min(1, norm));
-        return 1.3 + norm * 3.55;
+        return 1.25 + norm * 3.60;
       });
     }
 
@@ -1115,7 +1119,7 @@
 
       const filtered = [...rawSeg];
       for (let k = 1; k < filtered.length - 1; k++) {
-        if (Math.abs(filtered[k] - filtered[k - 1]) > 0.9 && Math.abs(filtered[k] - filtered[k + 1]) > 0.9) {
+        if (Math.abs(filtered[k] - filtered[k - 1]) > 0.85 && Math.abs(filtered[k] - filtered[k + 1]) > 0.85) {
           filtered[k] = (filtered[k - 1] + filtered[k + 1]) / 2;
         }
       }
@@ -1132,7 +1136,6 @@
       return resampleSegment(keyPoints, 28);
     }
 
-    // [에너지 골짜기(Valley) 및 피크 기반 음절 분절 알고리즘]
     function alignAndNormalizeToChunks() {
       const rawPitches = rawFrameStream.map(f => f.pitch);
       const dynamicScaledTones = dynamicScaleHzArray(rawPitches);
@@ -1143,7 +1146,6 @@
         return;
       }
 
-      // 1. 유의미한 보컬 세그먼트(음절 덩어리) 추출
       const vowelBlocks = [];
       let curBlock = [];
 
@@ -1158,13 +1160,10 @@
       }
       if (curBlock.length >= 4) vowelBlocks.push(curBlock);
 
-      // 2. 단어 내부 연음(예: tiān-qì) 분할: 기계적 2등분이 아닌 에너지 최소점(Valley)에서 분할
       let separatedSyllables = [];
 
       vowelBlocks.forEach(block => {
-        // 해당 블록이 1개 음절 평균 길이의 1.6배 이상이면 연음으로 판단하여 분할점 탐색
         if (block.length >= 18 && totalSyllablesCount > vowelBlocks.length) {
-          // 중간 30%~70% 영역에서 에너지가 가장 낮은 골짜기(자음 전이 구간) 탐색
           const searchStart = Math.floor(block.length * 0.3);
           const searchEnd = Math.floor(block.length * 0.7);
           let minRms = Infinity, splitIdx = Math.floor(block.length / 2);
@@ -1182,7 +1181,6 @@
         }
       });
 
-      // 3. 목표 음절 수와 맞추기 (초과 잡음 병합 또는 부족 구간 추가 분할)
       while (separatedSyllables.length < totalSyllablesCount) {
         let maxLen = -1, maxIdx = -1;
         for (let i = 0; i < separatedSyllables.length; i++) {
@@ -1202,7 +1200,7 @@
         let minLen = Infinity, minIdx = -1;
         for (let i = 0; i < separatedSyllables.length; i++) {
           if (separatedSyllables[i].length < minLen) {
-            minLen = separatedSyllables[i].length;
+            minLen = syllableSegments ? minLen : 0;
             minIdx = i;
           }
         }
@@ -1215,7 +1213,6 @@
         } else break;
       }
 
-      // 4. 음절별 순수 피치 곡선 추출 및 NHK 단순화 적용
       userSyllableCurves = [];
 
       for (let s = 0; s < totalSyllablesCount; s++) {
@@ -1223,14 +1220,24 @@
         let tones = block.map(b => b.tone);
 
         if (tones.length >= 4) {
-          // 음절 시작과 끝 여백(각 4%) 정리
           const cut = Math.max(1, Math.floor(tones.length * 0.04));
           tones = tones.slice(cut, tones.length - cut);
+
+          // 만약 기준 음절이 1성인 경우, 4.85도 기준선 부근으로 피치 상향 보정(Top Alignment)
+          const targetSyl = allSentenceSyllables[s];
+          if (targetSyl && targetSyl.actualTone === 1) {
+            const avgVal = tones.reduce((a, b) => a + b, 0) / tones.length;
+            if (avgVal < 4.80) {
+              const boost = 4.85 - avgVal;
+              tones = tones.map(v => Math.min(4.90, v + boost * 0.85));
+            }
+          }
+
           userSyllableCurves.push(simplifySyllableToToneCurve(tones));
         } else {
           const guideFallback = allSentenceSyllables[s] && allSentenceSyllables[s].curvePoints 
             ? allSentenceSyllables[s].curvePoints[0] 
-            : 3.5;
+            : 4.85;
           userSyllableCurves.push(resampleSegment([guideFallback, guideFallback], 28));
         }
       }
