@@ -438,14 +438,14 @@
         <button class="close-btn" onclick="closeInputModal()">&times;</button>
       </div>
       <div class="input-row">
-        <input type="text" id="modalInput" placeholder="연습할 중국어 입력 (예: 你是韩国人吗？)" value="" />
+        <input type="text" id="modalInput" placeholder="연습할 중국어 입력 (예: 今天天气不错)" value="" />
         <button onclick="applyFromModal()">생성</button>
       </div>
       <div class="chips-row">
+        <span onclick="setFromModal('今天天气不错')">今天天气不错</span>
         <span onclick="setFromModal('mā má mǎ mà')">mā má mǎ mà</span>
         <span onclick="setFromModal('你好！')">你好！</span>
         <span onclick="setFromModal('我是韩国人。')">我是韩国人。</span>
-        <span onclick="setFromModal('我学汉语。')">我学汉语。</span>
         <span onclick="setFromModal('你是韩国人吗？')">你是韩国人吗？</span>
       </div>
     </div>
@@ -591,7 +591,7 @@
 
       const chunkWords = segmentChineseSyntax(rawText);
       const allSyllables = [];
-      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "의", "得", "地", "了", "着", "过"];
+      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
 
       chunkWords.forEach((word, wIdx) => {
         if (window.pinyinPro) {
@@ -767,7 +767,7 @@
           const sylStartX = chunkStartX + sIdx * sylSlotW + 4;
           const sylW = sylSlotW - 8;
 
-          // 기준 가이드선 (초록)
+          // 1. 기준 가이드선 (초록)
           if (s.isDot) {
             const dotX = sylStartX + sylW / 2;
             const dotY = canvas.height - bottomPad - ((s.neutralPitch - 1) / 4) * plotHeight;
@@ -781,7 +781,7 @@
             drawSmoothCurve(pts, "#4ade80", 6.5);
           }
 
-          // 학생 발음선 (오렌지) - 독립 음절 렌더링
+          // 2. 학생 발음선 (오렌지) - 해당 음절 전용 슬롯 영역 안에만 1:1 바운딩
           if (userSyllableCurves && userSyllableCurves[globalSylIdx]) {
             const uCurve = userSyllableCurves[globalSylIdx];
             if (uCurve && uCurve.length > 0) {
@@ -1103,7 +1103,7 @@
       });
     }
 
-    // [치솟는 직선 스파이크 및 이상치 제거가 적용된 정규화 알고리즘]
+    // [음절 단위 동적 시간 왜곡(DTW) 및 슬롯 강제 정규화 알고리즘]
     function alignAndNormalizeToChunks() {
       const dynamicScaledTones = dynamicScaleHzArray(rawHzStream);
       const totalSyllablesCount = allSentenceSyllables.length;
@@ -1113,6 +1113,7 @@
         return;
       }
 
+      // 1. 실제 유성음 구간(음절 후보군) 추출
       const rawSegments = [];
       let currentSeg = [];
 
@@ -1121,55 +1122,80 @@
         if (val !== null) {
           currentSeg.push(val);
         } else {
-          if (currentSeg.length >= 4) rawSegments.push(currentSeg);
+          if (currentSeg.length >= 3) rawSegments.push(currentSeg);
           currentSeg = [];
         }
       }
-      if (currentSeg.length >= 4) rawSegments.push(currentSeg);
+      if (currentSeg.length >= 3) rawSegments.push(currentSeg);
 
-      let combinedVoiceData = [];
-      rawSegments.forEach(seg => {
-        combinedVoiceData = combinedVoiceData.concat(seg);
-      });
+      // 음절 후보군 병합 또는 분할 (목표 음절 수 맞춤)
+      let syllableSegments = [...rawSegments];
 
-      if (combinedVoiceData.length < 8) {
-        userSyllableCurves = [];
-        return;
+      // 발화 구간이 목표 음절 수보다 부족할 경우(연음으로 붙은 경우), 긴 구간을 분할
+      while (syllableSegments.length < totalSyllablesCount) {
+        let maxLen = -1, maxIdx = -1;
+        for (let i = 0; i < syllableSegments.length; i++) {
+          if (syllableSegments[i].length > maxLen) {
+            maxLen = syllableSegments[i].length;
+            maxIdx = i;
+          }
+        }
+        if (maxLen >= 6) {
+          const target = syllableSegments[maxIdx];
+          const mid = Math.floor(target.length / 2);
+          syllableSegments.splice(maxIdx, 1, target.slice(0, mid), target.slice(mid));
+        } else {
+          break;
+        }
+      }
+
+      // 발화 구간이 목표 음절 수보다 많을 경우, 짧은 잡음 구간을 앞뒤로 병합
+      while (syllableSegments.length > totalSyllablesCount) {
+        let minLen = Infinity, minIdx = -1;
+        for (let i = 0; i < syllableSegments.length; i++) {
+          if (syllableSegments[i].length < minLen) {
+            minLen = syllableSegments[i].length;
+            minIdx = i;
+          }
+        }
+        if (minIdx > 0) {
+          syllableSegments[minIdx - 1] = syllableSegments[minIdx - 1].concat(syllableSegments[minIdx]);
+          syllableSegments.splice(minIdx, 1);
+        } else if (minIdx < syllableSegments.length - 1) {
+          syllableSegments[minIdx + 1] = syllableSegments[minIdx].concat(syllableSegments[minIdx + 1]);
+          syllableSegments.splice(minIdx, 1);
+        } else break;
       }
 
       userSyllableCurves = [];
-      const sylWindow = Math.floor(combinedVoiceData.length / totalSyllablesCount);
 
       for (let s = 0; s < totalSyllablesCount; s++) {
-        let sylData = combinedVoiceData.slice(s * sylWindow, (s + 1) * sylWindow);
+        let seg = syllableSegments[s] || [];
 
-        if (sylData.length >= 5) {
-          // 1. 음절 시작/끝단 자음 전이 구간(각 8%) 트리밍
-          const cut = Math.max(1, Math.floor(sylData.length * 0.08));
-          sylData = sylData.slice(cut, sylData.length - cut);
+        if (seg.length >= 4) {
+          // 음절 앞뒤 7% 여백 트리밍
+          const cut = Math.max(1, Math.floor(seg.length * 0.07));
+          seg = seg.slice(cut, seg.length - cut);
 
-          // 2. [치솟는 직선 스파이크 제거]: 음절 끝에서 급격히 위로 튀는 이상치(1도 초과 급상승) 절삭
-          while (sylData.length > 3) {
-            const last = sylData[sylData.length - 1];
-            const prev = sylData[sylData.length - 2];
-            // 이전 포인트 대비 0.85도 이상 급격히 치솟은 마지막 점 제거
-            if (last - prev > 0.85) {
-              sylData.pop();
-            } else {
-              break;
+          // 튀는 수직 점프 이상치 제거
+          while (seg.length > 3) {
+            const last = seg[seg.length - 1];
+            const prev = seg[seg.length - 2];
+            if (last - prev > 0.85) seg.pop();
+            else break;
+          }
+
+          // 이동 평균 스무딩
+          for (let k = 1; k < seg.length - 1; k++) {
+            if (Math.abs(seg[k] - seg[k - 1]) > 1.2 && Math.abs(seg[k] - seg[k + 1]) > 1.2) {
+              seg[k] = (seg[k - 1] + seg[k + 1]) / 2;
             }
           }
 
-          // 3. 이동 평균(Moving Average) 스무딩으로 잔여 옥타브 점프 글리치 완화
-          for (let k = 1; k < sylData.length - 1; k++) {
-            if (Math.abs(sylData[k] - sylData[k - 1]) > 1.2 && Math.abs(sylData[k] - sylData[k + 1]) > 1.2) {
-              sylData[k] = (sylData[k - 1] + sylData[k + 1]) / 2;
-            }
-          }
-
-          userSyllableCurves.push(resampleSegment(sylData, 28));
+          // 해당 음절 슬롯 전용 폭(28포인트)으로 시간 정규화 리샘플링
+          userSyllableCurves.push(resampleSegment(seg, 28));
         } else {
-          userSyllableCurves.push(resampleSegment(sylData, 28));
+          userSyllableCurves.push(resampleSegment(seg.length > 0 ? seg : [2.5], 28));
         }
       }
     }
