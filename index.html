@@ -33,30 +33,31 @@
       position: relative;
       overflow: hidden;
       box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      padding-top: max(4px, env(safe-area-inset-top));
     }
 
     .nav-bar {
-      height: 54px;
-      min-height: 54px;
+      height: 48px;
+      min-height: 48px;
       background: #ffffff;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 14px;
+      padding: 0 12px;
       border-bottom: 1.5px solid #f1f5f9;
       flex-shrink: 0;
     }
     .brand-area {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
     .brand-thumb {
-      width: 44px;
-      height: 44px;
+      width: 38px;
+      height: 38px;
       border-radius: 50%;
       object-fit: cover;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.12);
       border: 1.5px solid #fed7aa;
       display: block;
       flex-shrink: 0;
@@ -68,41 +69,53 @@
       text-align: left;
     }
     .main-title {
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       font-weight: 800;
       color: #f97316;
       line-height: 1.1;
+      white-space: nowrap;
     }
     .sub-title {
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       color: #64748b;
       font-weight: 600;
-      margin-top: 2px;
+      margin-top: 1px;
+      white-space: nowrap;
     }
 
     .nav-tools {
       display: flex;
-      gap: 6px;
+      gap: 5px;
+      align-items: center;
     }
     .tool-btn {
       background: #f8fafc;
-      border: 1px solid #cbd5e1;
-      padding: 5px 10px;
+      border: 1.2px solid #cbd5e1;
+      padding: 5px 8px;
       border-radius: 6px;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 700;
       cursor: pointer;
       color: #334155;
       text-decoration: none;
       display: inline-flex;
       align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+      transition: all 0.15s;
     }
-    .tool-btn:hover { background: #f1f5f9; }
+    .tool-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+    .tool-btn-upload {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+    .tool-btn-upload:hover { background: #dbeafe; }
 
     .main-body {
       flex: 1;
       display: flex;
-      padding: 8px 10px 10px 10px;
+      padding: 6px 8px 8px 8px;
       gap: 8px;
       min-height: 0;
       background: #f8fafc;
@@ -112,7 +125,7 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 5px;
       min-height: 0;
       height: 100%;
     }
@@ -120,12 +133,12 @@
     .text-card {
       background: #ffffff;
       border-radius: 10px;
-      padding: 6px 12px;
+      padding: 4px 10px;
       display: flex;
       flex-direction: column;
       justify-content: center;
-      min-height: 64px;
-      max-height: 72px;
+      min-height: 58px;
+      max-height: 64px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.04);
       border: 1px solid #e2e8f0;
       position: relative;
@@ -145,33 +158,33 @@
       flex-shrink: 0;
     }
     .chunk-hanzi {
-      font-size: 1.45rem;
+      font-size: 1.35rem;
       font-weight: 800;
       color: #1e293b;
       letter-spacing: 1.5px;
       line-height: 1.1;
     }
     .chunk-pinyin {
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       font-weight: 600;
       color: #0d9488;
       margin-top: 1px;
     }
     .empty-placeholder {
       color: #94a3b8;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: 600;
     }
     .sentence-guide-audio-btn {
       position: absolute;
-      top: 6px;
-      right: 8px;
+      top: 5px;
+      right: 6px;
       background: #f0fdfa;
       border: 1px solid #99f6e4;
       color: #0d9488;
-      padding: 3px 8px;
-      border-radius: 10px;
-      font-size: 0.72rem;
+      padding: 3px 7px;
+      border-radius: 8px;
+      font-size: 0.68rem;
       font-weight: 700;
       cursor: pointer;
     }
@@ -193,13 +206,13 @@
 
     .feedback-banner {
       position: absolute;
-      top: 8px;
+      top: 6px;
       left: 50%;
       transform: translateX(-50%);
-      padding: 4px 16px;
-      border-radius: 16px;
+      padding: 3px 14px;
+      border-radius: 14px;
       font-weight: 800;
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       letter-spacing: 1.5px;
       display: none;
       z-index: 5;
@@ -211,27 +224,27 @@
 
     .canvas-legend {
       position: absolute;
-      bottom: 6px;
-      right: 10px;
+      bottom: 5px;
+      right: 8px;
       display: flex;
-      gap: 10px;
-      font-size: 0.68rem;
+      gap: 8px;
+      font-size: 0.65rem;
       font-weight: 600;
       color: #cbd5e1;
       pointer-events: none;
     }
     .canvas-legend span { display: flex; align-items: center; gap: 4px; }
-    .legend-guide { width: 8px; height: 8px; background: #4ade80; border-radius: 2px; }
-    .legend-user { width: 8px; height: 8px; background: #fb923c; border-radius: 2px; }
+    .legend-guide { width: 7px; height: 7px; background: #4ade80; border-radius: 2px; }
+    .legend-user { width: 7px; height: 7px; background: #fb923c; border-radius: 2px; }
 
     .control-sidebar {
-      width: 92px;
+      width: 86px;
       background: #ffffff;
       border-radius: 10px;
       display: flex;
       flex-direction: column;
-      padding: 6px;
-      gap: 6px;
+      padding: 5px;
+      gap: 5px;
       border: 1px solid #e2e8f0;
       flex-shrink: 0;
     }
@@ -244,11 +257,11 @@
       align-items: center;
       justify-content: center;
       gap: 2px;
-      font-size: 0.8rem;
+      font-size: 0.76rem;
       font-weight: 800;
       cursor: pointer;
     }
-    .side-btn svg { width: 22px; height: 22px; }
+    .side-btn svg { width: 20px; height: 20px; }
 
     .btn-rec {
       background: #fee2e2;
@@ -369,9 +382,10 @@
         </div>
       </div>
       <div class="nav-tools">
-        <a href="pinyin.html" class="tool-btn">🔤 기본 발음</a>
+        <!-- 수정된 부분: 기본발음듣기 -->
+        <a href="pinyin.html" class="tool-btn">🔤 기본발음듣기</a>
         <button class="tool-btn" onclick="openInputModal()">✏️ 문장 입력</button>
-        <button class="tool-btn" onclick="triggerFileUpload()">🎧 음성 파일</button>
+        <button class="tool-btn tool-btn-upload" onclick="triggerFileUpload()">📤 음원 업로드</button>
         <input type="file" id="audioFileInput" accept="audio/*" style="display:none;" onchange="handleAudioUpload(event)" />
       </div>
     </div>
@@ -570,7 +584,7 @@
 
       const chunkWords = segmentChineseSyntax(rawText);
       const allSyllables = [];
-      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
+      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "의", "得", "地", "了", "着", "过"];
 
       chunkWords.forEach((word, wIdx) => {
         if (window.pinyinPro) {
@@ -697,8 +711,8 @@
       if (!canvas.width || !canvas.height) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const topPad = 24;
-      const bottomPad = 24;
+      const topPad = 22;
+      const bottomPad = 22;
       const plotHeight = canvas.height - topPad - bottomPad;
 
       ctx.lineWidth = 1;
@@ -731,7 +745,6 @@
         ctx.stroke();
       }
 
-      // [기준 가이드 - 초록색]
       activeChunks.forEach((chunk, cIdx) => {
         const chunkStartX = marginX + cIdx * chunkWidth + 8;
         const chunkInnerW = chunkWidth - 16;
@@ -758,7 +771,6 @@
         });
       });
 
-      // [학생 발음 - 오렌지색: 음절별 분절 렌더링 & 하강선 제거]
       if (chunkUserCurves.length > 0) {
         chunkUserCurves.forEach((userChunk, cIdx) => {
           if (!userChunk || cIdx >= numChunks) return;
@@ -1090,7 +1102,6 @@
       });
     }
 
-    // [음절 단위 정규화 및 무의미한 하강 꼬리 절삭 알고리즘]
     function alignAndNormalizeToChunks() {
       const dynamicScaledTones = dynamicScaleHzArray(rawHzStream);
       const rawSegments = [];
@@ -1128,7 +1139,6 @@
         } else break;
       }
 
-      // 성분 덩어리 -> 음절 단위로 세부 분절 및 불필요한 하강 골짜기 제거
       chunkUserCurves = [];
       mergedSegments.forEach((seg, cIdx) => {
         if (cIdx >= activeChunks.length) return;
@@ -1139,7 +1149,6 @@
         for (let s = 0; s < numSyls; s++) {
           let sRaw = seg.slice(s * sylLen, (s + 1) * sylLen);
           if (sRaw.length >= 4) {
-            // 앞뒤 연음 골짜기 여백(각 10%)을 다듬고 30포인트로 매끄럽게 재샘플링
             const trimStart = Math.floor(sRaw.length * 0.1);
             const trimEnd = Math.floor(sRaw.length * 0.9);
             const trimmed = sRaw.slice(trimStart, trimEnd);
@@ -1193,7 +1202,7 @@
             let slopeErrors = [];
             for (let i = 0; i < uCurve.length - 1; i++) {
               const guideSlope = resampledGuide[i + 1] - resampledGuide[i];
-              const userSlope = uCurve[i + 1] - uCurve[i];
+              const userSlope = uCurve[i + 1] - userCurve[i];
               slopeErrors.push(Math.abs(guideSlope - userSlope));
             }
             const avgSlopeError = slopeErrors.reduce((a, b) => a + b, 0) / slopeErrors.length;
