@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+  <title>李老师의 InTone Viewer - 기본 발음</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100vh;
+      background: #f0fdf4;
+      font-family: 'Segoe UI', AppleSDGothicNeo-Regular, sans-serif;
+      color: #0f172a;
+    }
+
+    /* 상단 네비게이션 헤더 */
+    .nav-bar {
+      height: 56px;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1.5px solid #e2e8f0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+    }
+    .brand-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-thumb {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1.5px solid #fed7aa;
+      background: #ffffff;
+    }
+    .brand-titles {
+      display: flex;
+      flex-direction: column;
+      text-align: left;
+    }
+    .main-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #f97316;
+      line-height: 1.1;
+    }
+    .sub-title {
+      font-size: 0.72rem;
+      color: #64748b;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    /* 상단 전환 탭 버튼 */
+    .tab-btn {
+      background: #0f766e;
+      color: #ffffff;
+      border: none;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .tab-btn:hover { background: #115e59; }
+
+    /* 본문 콘텐츠 컨테이너 */
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .desc-card {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 12px 18px;
+      margin-bottom: 20px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+      display: inline-block;
+    }
+    .desc-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #0f766e;
+      margin-bottom: 4px;
+    }
+    .desc-text {
+      font-size: 0.85rem;
+      color: #64748b;
+      margin: 0;
+    }
+
+    /* 표 섹션 공통 스타일 */
+    .section-wrap {
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 24px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    h3 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #1e293b;
+      margin: 0 0 14px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    h3::before, h3::after {
+      content: "";
+      width: 24px;
+      height: 2px;
+      background: #cbd5e1;
+      border-radius: 2px;
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 6px;
+    }
+
+    /* 발음 타일 그리드 테이블 */
+    table.pinyin-table {
+      border-collapse: separate;
+      border-spacing: 6px;
+      margin: 0 auto;
+    }
+    table.pinyin-table td {
+      min-width: 68px;
+      height: 48px;
+      border-radius: 8px;
+      font-family: 'Times New Roman', Times, serif;
+      font-size: 1.35rem;
+      font-weight: bold;
+      text-align: center;
+      vertical-align: middle;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      user-select: none;
+      transition: transform 0.1s, opacity 0.1s;
+    }
+    table.pinyin-table td:active {
+      transform: scale(0.95);
+      opacity: 0.8;
+    }
+
+    /* 색상 테마 매핑 */
+    .col-tone  { background: #ffffff; color: #0f172a; border: 1.5px solid #cbd5e1; }
+    .col-b1    { background: #b3b300; color: #ffffff; }
+    .col-b2    { background: #a7f3d0; color: #065f46; }
+    .col-b3    { background: #fef08a; color: #854d0e; }
+    .col-b4    { background: #dee0fe; color: #3730a3; }
+    .col-b5    { background: #fed7aa; color: #9a3412; }
+    .col-b6    { background: #a5b4fc; color: #312e81; }
+
+    .col-v-std { background: #ede9fe; color: #5b21b6; }
+    .col-v-u   { background: #d98cd9; color: #ffffff; }
+    .col-v-ai  { background: #d97706; color: #ffffff; }
+    .col-v-an  { background: #65a30d; color: #ffffff; }
+    .col-v-er  { background: #ccfbf1; color: #0f766e; }
+    .col-empty { background: transparent; border: none; box-shadow: none; cursor: default; }
+  </style>
+</head>
+<body>
+
+  <!-- 상단 네비게이션 바 -->
+  <div class="nav-bar">
+    <div class="brand-area">
+      <img src="profile1.png" alt="李老师" class="brand-thumb" onerror="this.src='profile.png'" />
+      <div class="brand-titles">
+        <span class="main-title">李老师의 InTone Viewer</span>
+        <span class="sub-title">사이버한국외국어대학교 중국어학부</span>
+      </div>
+    </div>
+    <a href="index.html" class="tab-btn">
+      <span>📈 운율 분석기로 이동</span>
+    </a>
+  </div>
+
+  <div class="container">
+    <div class="desc-card">
+      <div class="desc-title">중국어 기본 발음 클리닉</div>
+      <p class="desc-text">글자를 터치하면 정확한 원어민 오디오 음성이 재생됩니다.</p>
+    </div>
+
+    <!-- 1. 성조 -->
+    <div class="section-wrap">
+      <h3>중국어 4대 성조[cite: 2]</h3>
+      <div class="table-scroll">
+        <table class="pinyin-table">
+          <tr>
+            <td class="col-tone" onclick="audioTablePlay(1)">mā</td>
+            <td class="col-tone" onclick="audioTablePlay(2)">má</td>
+            <td class="col-tone" onclick="audioTablePlay(3)">mǎ</td>
+            <td class="col-tone" onclick="audioTablePlay(4)">mà</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- 2. 성모 -->
+    <div class="section-wrap">
+      <h3>중국어 성모표[cite: 2]</h3>
+      <div class="table-scroll">
+        <table class="pinyin-table">
+          <tr>
+            <td class="col-b1" onclick="audioTablePlay(5)">b</td>
+            <td class="col-b1" onclick="audioTablePlay(6)">p</td>
+            <td class="col-b1" onclick="audioTablePlay(7)">m</td>
+            <td class="col-b1" onclick="audioTablePlay(8)">f</td>
+          </tr>
+          <tr>
+            <td class="col-b2" onclick="audioTablePlay(9)">d</td>
+            <td class="col-b2" onclick="audioTablePlay(10)">t</td>
+            <td class="col-b2" onclick="audioTablePlay(11)">n</td>
+            <td class="col-b2" onclick="audioTablePlay(12)">l</td>
+          </tr>
+          <tr>
+            <td class="col-b3" onclick="audioTablePlay(13)">g</td>
+            <td class="col-b3" onclick="audioTablePlay(14)">k</td>
+            <td class="col-b3" onclick="audioTablePlay(15)">h</td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-b4" onclick="audioTablePlay(16)">j</td>
+            <td class="col-b4" onclick="audioTablePlay(17)">q</td>
+            <td class="col-b4" onclick="audioTablePlay(18)">x</td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-b5" onclick="audioTablePlay(19)">zh</td>
+            <td class="col-b5" onclick="audioTablePlay(20)">ch</td>
+            <td class="col-b5" onclick="audioTablePlay(21)">sh</td>
+            <td class="col-b5" onclick="audioTablePlay(22)">r</td>
+          </tr>
+          <tr>
+            <td class="col-b6" onclick="audioTablePlay(23)">z</td>
+            <td class="col-b6" onclick="audioTablePlay(24)">c</td>
+            <td class="col-b6" onclick="audioTablePlay(25)">s</td>
+            <td class="col-empty"></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. 운모 -->
+    <div class="section-wrap">
+      <h3>중국어 운모표[cite: 2]</h3>
+      <div class="table-scroll">
+        <table class="pinyin-table">
+          <tr>
+            <td class="col-empty"></td>
+            <td class="col-v-std" onclick="audioTablePlay(26)">i(yi)</td>
+            <td class="col-v-std" onclick="audioTablePlay(27)">u(wu)</td>
+            <td class="col-v-u" onclick="audioTablePlay(28)">ü(yu)</td>
+          </tr>
+          <tr>
+            <td class="col-v-std" onclick="audioTablePlay(29)">a</td>
+            <td class="col-v-std" onclick="audioTablePlay(42)">ia(ya)</td>
+            <td class="col-v-std" onclick="audioTablePlay(51)">ua(wa)</td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-std" onclick="audioTablePlay(30)">o</td>
+            <td class="col-empty"></td>
+            <td class="col-v-std" onclick="audioTablePlay(52)">uo(wo)</td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-std" onclick="audioTablePlay(31)">e</td>
+            <td class="col-v-std" onclick="audioTablePlay(43)">ie(ye)</td>
+            <td class="col-empty"></td>
+            <td class="col-v-std" onclick="audioTablePlay(59)">üe(yue)</td>
+          </tr>
+          <tr>
+            <td class="col-v-ai" onclick="audioTablePlay(32)">ai</td>
+            <td class="col-empty"></td>
+            <td class="col-v-ai" onclick="audioTablePlay(53)">uai(wai)</td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-ai" onclick="audioTablePlay(33)">ei</td>
+            <td class="col-empty"></td>
+            <td class="col-v-ai" onclick="audioTablePlay(54)">uei(wei)</td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-ai" onclick="audioTablePlay(34)">ao</td>
+            <td class="col-v-ai" onclick="audioTablePlay(44)">iao(yao)</td>
+            <td class="col-empty"></td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-ai" onclick="audioTablePlay(35)">ou</td>
+            <td class="col-v-ai" onclick="audioTablePlay(45)">you(you)</td>
+            <td class="col-empty"></td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-an" onclick="audioTablePlay(36)">an</td>
+            <td class="col-v-an" onclick="audioTablePlay(46)">ian(yan)</td>
+            <td class="col-v-an" onclick="audioTablePlay(55)">uan(wan)</td>
+            <td class="col-v-an" onclick="audioTablePlay(60)">üan(yuan)</td>
+          </tr>
+          <tr>
+            <td class="col-v-an" onclick="audioTablePlay(37)">en</td>
+            <td class="col-v-an" onclick="audioTablePlay(47)">in(yin)</td>
+            <td class="col-v-an" onclick="audioTablePlay(56)">uen(wen)</td>
+            <td class="col-v-an" onclick="audioTablePlay(61)">ün(yun)</td>
+          </tr>
+          <tr>
+            <td class="col-v-an" onclick="audioTablePlay(38)">ang</td>
+            <td class="col-v-an" onclick="audioTablePlay(48)">iang(yang)</td>
+            <td class="col-v-an" onclick="audioTablePlay(57)">uang(wang)</td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-an" onclick="audioTablePlay(39)">eng</td>
+            <td class="col-v-an" onclick="audioTablePlay(49)">ing(ying)</td>
+            <td class="col-v-an" onclick="audioTablePlay(58)">ueng(weng)</td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-an" onclick="audioTablePlay(40)">ong</td>
+            <td class="col-v-an" onclick="audioTablePlay(50)">iong(yong)</td>
+            <td class="col-empty"></td>
+            <td class="col-empty"></td>
+          </tr>
+          <tr>
+            <td class="col-v-er" onclick="audioTablePlay(41)">er</td>
+            <td class="col-empty"></td>
+            <td class="col-empty"></td>
+            <td class="col-empty"></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 음원 재생 엔진[cite: 2]
+    var currentAudio = new Audio();
+
+    function audioTablePlay(num) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      currentAudio.src = "./" + num + ".mp3"; // 1.mp3, 2.mp3 등 파일 재생[cite: 2]
+      currentAudio.play().catch(function(e) {
+        console.log("오디오 파일 로드 대기 중:", num + ".mp3");
+      });
+    }
+  </script>
+</body>
+</html>
