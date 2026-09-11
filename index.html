@@ -93,6 +93,9 @@
       font-weight: 700;
       cursor: pointer;
       color: #334155;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
     }
     .tool-btn:hover { background: #f1f5f9; }
 
@@ -366,7 +369,7 @@
         </div>
       </div>
       <div class="nav-tools">
-        <a href="pinyin.html" class="tool-btn" style="text-decoration:none; display:inline-flex; align-items:center;">🔤 기본 발음</a>
+        <a href="pinyin.html" class="tool-btn">🔤 기본 발음</a>
         <button class="tool-btn" onclick="openInputModal()">✏️ 문장 입력</button>
         <button class="tool-btn" onclick="triggerFileUpload()">🎧 음성 파일</button>
         <input type="file" id="audioFileInput" accept="audio/*" style="display:none;" onchange="handleAudioUpload(event)" />
@@ -445,13 +448,12 @@
   </div>
 
   <script>
-    // [음성학적 피치 궤적 템플릿] (완만한 굴곡형 제어점)
     const TONE_TEMPLATES = {
-      1: [4.8, 4.85, 4.8, 4.8],         // 1성: 55 고평조
-      2: [3.1, 3.2, 3.8, 4.85],         // 2성: 35 중고상승조
-      3: [2.5, 1.4, 1.35, 2.0, 3.8],    // 3성 원형: 214 강승조
-      "3_half": [2.3, 1.6, 1.3, 1.25],  // 반3성: 21 완만 저하강조
-      4: [4.9, 4.2, 2.6, 1.25]          // 4성: 51 전하강조
+      1: [4.8, 4.85, 4.8, 4.8],
+      2: [3.1, 3.2, 3.8, 4.85],
+      3: [2.5, 1.4, 1.35, 2.0, 3.8],
+      "3_half": [2.3, 1.6, 1.3, 1.25],
+      4: [4.9, 4.2, 2.6, 1.25]
     };
 
     let activeChunks = [];
@@ -484,7 +486,7 @@
     let uploadedAudioElement = null;
     let isGuidePlaying = false;
 
-    let normalizedUserSegments = [];
+    let chunkUserCurves = [];
 
     function resizeCanvas() {
       if (!canvasCard) return;
@@ -520,7 +522,6 @@
       document.getElementById("audioFileInput").click();
     }
 
-    // 문법 성분 분절
     function segmentChineseSyntax(text) {
       if (text.includes(" ")) {
         return text.split(/\s+/).filter(w => /[\u4e00-\u9fa5a-zA-Z]/.test(w));
@@ -561,11 +562,10 @@
       return result;
     }
 
-    // [음성학적 알고리즘] 성조 및 경성(선행 음절 연동) 산출
     function applySentence(rawText) {
       clearPlaybackAudio();
       hideFeedback();
-      normalizedUserSegments = [];
+      chunkUserCurves = [];
       activeChunks = [];
 
       const chunkWords = segmentChineseSyntax(rawText);
@@ -591,18 +591,14 @@
         }
       });
 
-      // 1. 변조 및 반3성 규칙 적용
       for (let i = 0; i < allSyllables.length; i++) {
         const cur = allSyllables[i];
         const next = (i < allSyllables.length - 1) ? allSyllables[i + 1] : null;
 
         if (cur.tone === 3) {
           if (next) {
-            if (next.tone === 3) {
-              cur.actualTone = 2;
-            } else {
-              cur.actualTone = "3_half"; // 뒤에 다른 글자가 오면 반3성
-            }
+            if (next.tone === 3) cur.actualTone = 2;
+            else cur.actualTone = "3_half";
           } else {
             cur.actualTone = 3;
           }
@@ -611,28 +607,26 @@
         }
       }
 
-      // 2. [음성학적 규칙] 경성 피치 위치 결정
       for (let i = 0; i < allSyllables.length; i++) {
         const cur = allSyllables[i];
         if (cur.actualTone === 0) {
           const prev = (i > 0) ? allSyllables[i - 1] : null;
-          let neutralPitch = 2.0; // 기본
+          let neutralPitch = 2.0;
           if (prev) {
             const pt = prev.actualTone;
-            if (pt === 1) neutralPitch = 2.1;           // 1성 뒤: 2도
-            else if (pt === 2) neutralPitch = 3.0;      // 2성 뒤: 3도
-            else if (pt === 3 || pt === "3_half") neutralPitch = 4.0; // 3성 뒤: 4도
-            else if (pt === 4) neutralPitch = 1.3;      // 4성 뒤: 1도
+            if (pt === 1) neutralPitch = 2.1;
+            else if (pt === 2) neutralPitch = 3.0;
+            else if (pt === 3 || pt === "3_half") neutralPitch = 4.0;
+            else if (pt === 4) neutralPitch = 1.3;
           }
           cur.neutralPitch = neutralPitch;
-          cur.isDot = true; // 경성은 점(Dot) 렌더링
+          cur.isDot = true;
         } else {
           cur.isDot = false;
           cur.curvePoints = TONE_TEMPLATES[cur.actualTone] || TONE_TEMPLATES[1];
         }
       }
 
-      // 3. 음절 단위 독립 배열 구조로 저장 (음절 간 M자형 연결선 완전 제거)
       chunkWords.forEach((word, wIdx) => {
         const syls = allSyllables.filter(s => s.wordIdx === wIdx);
         if (syls.length === 0) return;
@@ -640,7 +634,7 @@
         activeChunks.push({
           hanzi: syls.map(s => s.char).join(""),
           pinyin: syls.map(s => s.pinyin).join(" "),
-          syllables: syls // 음절 단위로 캔버스에 독립 드로잉
+          syllables: syls
         });
       });
 
@@ -662,7 +656,6 @@
       `).join("");
     }
 
-    // [음성학적 베지에 곡선 스무딩 드로잉]
     function drawSmoothCurve(points, color, width) {
       if (points.length < 2) return;
       ctx.save();
@@ -691,7 +684,6 @@
       ctx.restore();
     }
 
-    // [경성 도톰한 원형 점 렌더링]
     function drawNeutralDot(x, y, color) {
       ctx.save();
       ctx.fillStyle = color;
@@ -709,7 +701,6 @@
       const bottomPad = 24;
       const plotHeight = canvas.height - topPad - bottomPad;
 
-      // 5도 성조 수평선
       ctx.lineWidth = 1;
       for (let level = 1; level <= 5; level++) {
         const y = canvas.height - bottomPad - ((level - 1) / 4) * plotHeight;
@@ -731,7 +722,6 @@
       const usableWidth = canvas.width - marginX * 2;
       const chunkWidth = usableWidth / numChunks;
 
-      // 성분 간 수직 구분선
       for (let i = 0; i <= numChunks; i++) {
         const x = marginX + i * chunkWidth;
         ctx.strokeStyle = "#1e293b";
@@ -741,7 +731,7 @@
         ctx.stroke();
       }
 
-      // [기준 가이드 렌더링 - 밝은 네온 녹색 #4ade80]
+      // [기준 가이드 - 초록색]
       activeChunks.forEach((chunk, cIdx) => {
         const chunkStartX = marginX + cIdx * chunkWidth + 8;
         const chunkInnerW = chunkWidth - 16;
@@ -754,12 +744,10 @@
           const sylW = sylSlotW - 8;
 
           if (s.isDot) {
-            // 경성은 도톰한 점(Dot) 표기
             const dotX = sylStartX + sylW / 2;
             const dotY = canvas.height - bottomPad - ((s.neutralPitch - 1) / 4) * plotHeight;
             drawNeutralDot(dotX, dotY, "#4ade80");
           } else {
-            // 일반 음절은 매끄러운 베지에 곡선 드로잉 (M자 하강선 없음)
             const pts = s.curvePoints.map((val, pIdx) => {
               const x = sylStartX + (pIdx / (s.curvePoints.length - 1)) * sylW;
               const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
@@ -770,20 +758,37 @@
         });
       });
 
-      // [학생 발음 렌더링 - 선명한 오렌지 #fb923c]
-      if (normalizedUserSegments.length > 0) {
-        normalizedUserSegments.forEach((segment, cIdx) => {
-          if (!segment || segment.length === 0 || cIdx >= numChunks) return;
+      // [학생 발음 - 오렌지색: 음절별 분절 렌더링 & 하강선 제거]
+      if (chunkUserCurves.length > 0) {
+        chunkUserCurves.forEach((userChunk, cIdx) => {
+          if (!userChunk || cIdx >= numChunks) return;
 
+          const chunk = activeChunks[cIdx];
           const chunkStartX = marginX + cIdx * chunkWidth + 8;
           const chunkInnerW = chunkWidth - 16;
+          const syls = chunk.syllables;
+          const numSyls = syls.length;
+          const sylSlotW = chunkInnerW / numSyls;
 
-          const pts = segment.map((val, pIdx) => {
-            const x = chunkStartX + (pIdx / (segment.length - 1)) * chunkInnerW;
-            const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
-            return { x, y };
+          userChunk.forEach((sylCurve, sIdx) => {
+            if (!sylCurve || sylCurve.length === 0 || sIdx >= numSyls) return;
+            const sylStartX = chunkStartX + sIdx * sylSlotW + 4;
+            const sylW = sylSlotW - 8;
+
+            if (syls[sIdx].isDot) {
+              const avgPitch = sylCurve.reduce((a, b) => a + b, 0) / sylCurve.length;
+              const dotX = sylStartX + sylW / 2;
+              const dotY = canvas.height - bottomPad - ((avgPitch - 1) / 4) * plotHeight;
+              drawNeutralDot(dotX, dotY, "#fb923c");
+            } else {
+              const pts = sylCurve.map((val, pIdx) => {
+                const x = sylStartX + (pIdx / (sylCurve.length - 1)) * sylW;
+                const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
+                return { x, y };
+              });
+              drawSmoothCurve(pts, "#fb923c", 6.5);
+            }
           });
-          drawSmoothCurve(pts, "#fb923c", 6.5);
         });
       }
     }
@@ -930,7 +935,7 @@
         hasSpeechStarted = false;
         silenceStartTimestamp = null;
         rawHzStream = [];
-        normalizedUserSegments = [];
+        chunkUserCurves = [];
 
         recBtn.classList.add("recording");
         recBtnText.innerText = "정지";
@@ -1085,6 +1090,7 @@
       });
     }
 
+    // [음절 단위 정규화 및 무의미한 하강 꼬리 절삭 알고리즘]
     function alignAndNormalizeToChunks() {
       const dynamicScaledTones = dynamicScaleHzArray(rawHzStream);
       const rawSegments = [];
@@ -1101,7 +1107,7 @@
       if (currentSeg.length >= 5) rawSegments.push(currentSeg);
 
       if (rawSegments.length === 0) {
-        normalizedUserSegments = [];
+        chunkUserCurves = [];
         return;
       }
 
@@ -1122,7 +1128,28 @@
         } else break;
       }
 
-      normalizedUserSegments = mergedSegments.map(seg => resampleSegment(seg, 40));
+      // 성분 덩어리 -> 음절 단위로 세부 분절 및 불필요한 하강 골짜기 제거
+      chunkUserCurves = [];
+      mergedSegments.forEach((seg, cIdx) => {
+        if (cIdx >= activeChunks.length) return;
+        const numSyls = activeChunks[cIdx].syllables.length;
+        const sylLen = Math.floor(seg.length / numSyls);
+        const sylCurves = [];
+
+        for (let s = 0; s < numSyls; s++) {
+          let sRaw = seg.slice(s * sylLen, (s + 1) * sylLen);
+          if (sRaw.length >= 4) {
+            // 앞뒤 연음 골짜기 여백(각 10%)을 다듬고 30포인트로 매끄럽게 재샘플링
+            const trimStart = Math.floor(sRaw.length * 0.1);
+            const trimEnd = Math.floor(sRaw.length * 0.9);
+            const trimmed = sRaw.slice(trimStart, trimEnd);
+            sylCurves.push(resampleSegment(trimmed.length >= 3 ? trimmed : sRaw, 30));
+          } else {
+            sylCurves.push(resampleSegment(sRaw, 30));
+          }
+        }
+        chunkUserCurves.push(sylCurves);
+      });
     }
 
     function resampleSegment(arr, targetLen) {
@@ -1140,40 +1167,44 @@
       return resampled;
     }
 
-    // 유사도 비교 (음절별 성조 궤적 대조)
     function calculateSimilarityAndFeedback() {
-      if (normalizedUserSegments.length === 0 || activeChunks.length === 0) return;
+      if (chunkUserCurves.length === 0 || activeChunks.length === 0) return;
 
       let totalScore = 0;
       let comparedCount = 0;
 
       for (let cIdx = 0; cIdx < activeChunks.length; cIdx++) {
         const chunk = activeChunks[cIdx];
-        const userCurve = normalizedUserSegments[cIdx];
-        if (!userCurve || userCurve.length < 5) continue;
+        const userSylCurves = chunkUserCurves[cIdx];
+        if (!userSylCurves) continue;
 
-        // 기준 가이드 포인트들을 단일 시퀀스로 펼쳐 비교
-        let guidePoints = [];
-        chunk.syllables.forEach(s => {
-          if (s.isDot) guidePoints.push(s.neutralPitch);
-          else guidePoints = guidePoints.concat(s.curvePoints);
+        chunk.syllables.forEach((s, sIdx) => {
+          const uCurve = userSylCurves[sIdx];
+          if (!uCurve || uCurve.length < 5) return;
+
+          if (s.isDot) {
+            const uAvg = uCurve.reduce((a, b) => a + b, 0) / uCurve.length;
+            const diff = Math.abs(s.neutralPitch - uAvg);
+            const dotScore = Math.max(0, 100 - diff * 35);
+            totalScore += dotScore;
+            comparedCount++;
+          } else {
+            const resampledGuide = resampleSegment(s.curvePoints, uCurve.length);
+            let slopeErrors = [];
+            for (let i = 0; i < uCurve.length - 1; i++) {
+              const guideSlope = resampledGuide[i + 1] - resampledGuide[i];
+              const userSlope = uCurve[i + 1] - uCurve[i];
+              slopeErrors.push(Math.abs(guideSlope - userSlope));
+            }
+            const avgSlopeError = slopeErrors.reduce((a, b) => a + b, 0) / slopeErrors.length;
+            const corr = calcPearsonCorrelation(resampledGuide, uCurve);
+            let slopeScore = Math.max(0, 100 - avgSlopeError * 180);
+            let shapeScore = Math.max(0, (corr + 1) * 50);
+
+            totalScore += (slopeScore * 0.6 + shapeScore * 0.4);
+            comparedCount++;
+          }
         });
-
-        const resampledGuide = resampleSegment(guidePoints, userCurve.length);
-        let slopeErrors = [];
-        for (let i = 0; i < userCurve.length - 1; i++) {
-          const guideSlope = resampledGuide[i + 1] - resampledGuide[i];
-          const userSlope = userCurve[i + 1] - userCurve[i];
-          slopeErrors.push(Math.abs(guideSlope - userSlope));
-        }
-
-        const avgSlopeError = slopeErrors.reduce((a, b) => a + b, 0) / slopeErrors.length;
-        const corr = calcPearsonCorrelation(resampledGuide, userCurve);
-        let slopeScore = Math.max(0, 100 - avgSlopeError * 180);
-        let shapeScore = Math.max(0, (corr + 1) * 50);
-
-        totalScore += (slopeScore * 0.6 + shapeScore * 0.4);
-        comparedCount++;
       }
 
       const finalSimilarity = comparedCount > 0 ? Math.round(totalScore / comparedCount) : 0;
