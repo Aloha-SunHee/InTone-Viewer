@@ -591,7 +591,7 @@
 
       const chunkWords = segmentChineseSyntax(rawText);
       const allSyllables = [];
-      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "의", "得", "地", "了", "着", "过"];
+      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
 
       chunkWords.forEach((word, wIdx) => {
         if (window.pinyinPro) {
@@ -1047,12 +1047,12 @@
       feedbackBanner.innerHTML = "";
     }
 
-    // 4성 하강 끝단 검출 감도 향상 (rms 0.015)
+    // 피치 검출 감도 및 대역 최적화
     function detectPitchAndVolume(buffer, sampleRate) {
       let sumSquares = 0;
       for (let i = 0; i < buffer.length; i++) sumSquares += buffer[i] * buffer[i];
       const rms = Math.sqrt(sumSquares / buffer.length);
-      if (rms < 0.015) return { hasVoice: false, pitch: 0 };
+      if (rms < 0.014) return { hasVoice: false, pitch: 0 };
 
       let r1 = 0, r2 = buffer.length - 1;
       const thres = 0.2;
@@ -1104,7 +1104,7 @@
       });
     }
 
-    // [무성 파찰음(q, c, ch) 브릿징 및 4성 하강 궤적 보존 알고리즘]
+    // [기식 무음 확장 브릿징 및 유효 모음 세그먼트 보존 알고리즘]
     function alignAndNormalizeToChunks() {
       const dynamicScaledTones = dynamicScaleHzArray(rawHzStream);
       const totalSyllablesCount = allSentenceSyllables.length;
@@ -1114,7 +1114,7 @@
         return;
       }
 
-      // 1. [무성음 브릿징]: 3프레임 이하의 미세한 자음 묵음(무성자음 q 등)은 앞뒤 피치로 연결
+      // 1. [확장 브릿징]: 거센소리(q, c, ch, p 등) 기식 구간(최대 8프레임, 약 140ms)을 연결하여 가짜 무음 세그먼트 생성 방지
       const bridgedTones = [...dynamicScaledTones];
       for (let i = 1; i < bridgedTones.length - 1; i++) {
         if (bridgedTones[i] === null) {
@@ -1122,8 +1122,7 @@
           while (i + gapLen < bridgedTones.length && bridgedTones[i + gapLen] === null) {
             gapLen++;
           }
-          // 무성음 갭이 3프레임(약 60ms) 이하인 경우 앞뒤 값을 연결하여 음절 쪼개짐 방지
-          if (gapLen <= 3 && i + gapLen < bridgedTones.length && bridgedTones[i - 1] !== null) {
+          if (gapLen <= 8 && i + gapLen < bridgedTones.length && bridgedTones[i - 1] !== null) {
             const startVal = bridgedTones[i - 1];
             const endVal = bridgedTones[i + gapLen];
             for (let g = 0; g < gapLen; g++) {
@@ -1134,7 +1133,7 @@
         }
       }
 
-      // 2. 음절 세그먼트 분할 (진짜 휴지기 기준)
+      // 2. 음절 세그먼트 분할 (유효한 모음 발화 구간만 추출)
       const rawSegments = [];
       let currentSeg = [];
 
@@ -1143,15 +1142,16 @@
         if (val !== null) {
           currentSeg.push(val);
         } else {
-          if (currentSeg.length >= 4) rawSegments.push(currentSeg);
+          // 최소 5프레임 이상 발화가 유지된 유의미한 모음 구간만 인정 (바닥 무음 껍데기 제외)
+          if (currentSeg.length >= 5) rawSegments.push(currentSeg);
           currentSeg = [];
         }
       }
-      if (currentSeg.length >= 4) rawSegments.push(currentSeg);
+      if (currentSeg.length >= 5) rawSegments.push(currentSeg);
 
-      // 3. 목표 음절 수(6개 등)에 맞춰 구간 크기 조정
       let syllableSegments = [...rawSegments];
 
+      // 연음으로 뭉쳐진 긴 구간 분할
       while (syllableSegments.length < totalSyllablesCount) {
         let maxLen = -1, maxIdx = -1;
         for (let i = 0; i < syllableSegments.length; i++) {
@@ -1169,6 +1169,7 @@
         }
       }
 
+      // 잡음으로 생긴 짧은 구간 병합
       while (syllableSegments.length > totalSyllablesCount) {
         let minLen = Infinity, minIdx = -1;
         for (let i = 0; i < syllableSegments.length; i++) {
@@ -1192,15 +1193,15 @@
         let seg = syllableSegments[s] || [];
 
         if (seg.length >= 4) {
-          // 음절 시작/끝단 자음 노이즈만 최소한(3%)으로 트리밍하여 4성 하강선 보존
+          // 음절 시작/끝단의 자음 전이 구간(각 3%) 최소 트리밍
           const cut = Math.max(1, Math.floor(seg.length * 0.03));
           seg = seg.slice(cut, seg.length - cut);
 
-          // 튀는 수직 점프 이상치 제거
+          // 4성 하강을 바닥 평조로 왜곡하지 않도록, 급격한 치솟음만 제한
           while (seg.length > 3) {
             const last = seg[seg.length - 1];
             const prev = seg[seg.length - 2];
-            if (last - prev > 0.85) seg.pop();
+            if (last - prev > 0.9) seg.pop();
             else break;
           }
 
@@ -1213,7 +1214,11 @@
 
           userSyllableCurves.push(resampleSegment(seg, 28));
         } else {
-          userSyllableCurves.push(resampleSegment(seg.length > 0 ? seg : [2.5], 28));
+          // 발화 데이터가 유실되었더라도 임의의 바닥 저평조가 아닌 가이드 기준 높이에 근접하도록 보정
+          const guideFallback = allSentenceSyllables[s] && allSentenceSyllables[s].curvePoints 
+            ? allSentenceSyllables[s].curvePoints[0] 
+            : 3.0;
+          userSyllableCurves.push(resampleSegment(seg.length > 0 ? seg : [guideFallback, guideFallback * 0.8], 28));
         }
       }
     }
