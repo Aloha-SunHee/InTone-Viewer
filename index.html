@@ -492,7 +492,7 @@
 
     let isRecording = false;
     let audioCtx, analyser, micStream;
-    let rawHzStream = [];
+    let rawFrameStream = []; // { pitch, rms } 프레임 단위 보존
     let silenceStartTimestamp = null;
     let hasSpeechStarted = false;
     let animLoopId;
@@ -561,11 +561,11 @@
       const result = [];
       const suffixes = ["人", "们", "家", "员", "生", "子", "头", "儿"];
       const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
-      const pronouns = ["你", "我", "他", "她", "它", "谁", "这", "那"];
+      const pronouns = ["你", "我", "他", "她", " prejudice", "谁", "这", "那"];
 
       for (let i = 0; i < tokens.length; i++) {
         let cur = tokens[i];
-        if (cur.length === 2 && pronouns.includes(cur[0]) && cur[1] === "是") {
+        if (cur.length === 2 && (cur[0] === "你" || cur[0] === "我" || cur[0] === "他" || cur[0] === "她") && cur[1] === "是") {
           result.push(cur[0]);
           result.push(cur[1]);
           continue;
@@ -680,7 +680,7 @@
       `).join("");
     }
 
-    // NHK 스타일: 도톰하고 매끄러운 곡선 렌더링
+    // NHK 스타일: 도톰하고 매끄러운 8px 곡선 렌더링
     function drawSmoothCurve(points, color, width) {
       if (!points || points.length < 2) return;
       ctx.save();
@@ -769,7 +769,7 @@
           const sylStartX = chunkStartX + sIdx * sylSlotW + 4;
           const sylW = sylSlotW - 8;
 
-          // 1. 기준 가이드선 (녹색, 8px 두께)
+          // 1. 기준 가이드선 (녹색, 8px)
           if (s.isDot) {
             const dotX = sylStartX + sylW / 2;
             const dotY = canvas.height - bottomPad - ((s.neutralPitch - 1) / 4) * plotHeight;
@@ -783,7 +783,7 @@
             drawSmoothCurve(pts, "#4ade80", 8.0);
           }
 
-          // 2. 학습자 발음선 (오렌지색, 8px 두께)
+          // 2. 학습자 발음선 (오렌지색, 8px) - 1:1 슬롯 고정
           if (userSyllableCurves && userSyllableCurves[globalSylIdx]) {
             const uCurve = userSyllableCurves[globalSylIdx];
             if (uCurve && uCurve.length > 0) {
@@ -949,7 +949,7 @@
         isRecording = true;
         hasSpeechStarted = false;
         silenceStartTimestamp = null;
-        rawHzStream = [];
+        rawFrameStream = [];
         userSyllableCurves = [];
 
         recBtn.classList.add("recording");
@@ -969,13 +969,17 @@
       const result = detectPitchAndVolume(buffer, audioCtx.sampleRate);
       const currentTime = performance.now();
 
+      // 피치와 음량(rms) 동시 기록
+      rawFrameStream.push({
+        pitch: result.hasVoice ? result.pitch : null,
+        rms: result.rms
+      });
+
       if (result.hasVoice) {
         hasSpeechStarted = true;
         silenceStartTimestamp = null;
-        rawHzStream.push(result.pitch);
       } else {
         if (hasSpeechStarted) {
-          rawHzStream.push(null);
           if (silenceStartTimestamp === null) {
             silenceStartTimestamp = currentTime;
           } else {
@@ -1053,7 +1057,7 @@
       let sumSquares = 0;
       for (let i = 0; i < buffer.length; i++) sumSquares += buffer[i] * buffer[i];
       const rms = Math.sqrt(sumSquares / buffer.length);
-      if (rms < 0.014) return { hasVoice: false, pitch: 0 };
+      if (rms < 0.014) return { hasVoice: false, pitch: 0, rms: rms };
 
       let r1 = 0, r2 = buffer.length - 1;
       const thres = 0.2;
@@ -1078,20 +1082,17 @@
         if (c[i] > maxVal) { maxVal = c[i]; maxPos = i; }
       }
 
-      if (maxVal / c[0] < 0.35) return { hasVoice: false, pitch: 0 };
+      if (maxVal / c[0] < 0.35) return { hasVoice: false, pitch: 0, rms: rms };
       const hz = sampleRate / maxPos;
-      if (hz < 65 || hz > 480) return { hasVoice: false, pitch: 0 };
-      return { hasVoice: true, pitch: hz };
+      if (hz < 65 || hz > 480) return { hasVoice: false, pitch: 0, rms: rms };
+      return { hasVoice: true, pitch: hz, rms: rms };
     }
 
-    // [화자 고유 음역 풀 스팬(Full-Range) 5도 정규화]
-    // 학습자의 최저음은 1.3도, 최고음은 4.85도(가이드 1성 높이)로 꽉 차게 확장
     function dynamicScaleHzArray(hzArray) {
       const validHz = hzArray.filter(h => h !== null && h > 0);
       if (validHz.length === 0) return hzArray.map(() => null);
 
       validHz.sort((a, b) => a - b);
-      // 상하위 5% 이상치 제거 후 순수 발성 범위 산출
       const pMin = validHz[Math.floor(validHz.length * 0.05)];
       const pMax = validHz[Math.floor(validHz.length * 0.95)];
 
@@ -1104,17 +1105,14 @@
         const curSemi = 12 * Math.log2(hz);
         let norm = (curSemi - minSemi) / semitoneRange;
         norm = Math.max(0, Math.min(1, norm));
-        // 1.3도(최저) ~ 4.85도(최고 1성 높이)로 매핑
         return 1.3 + norm * 3.55;
       });
     }
 
-    // [음절 궤적 단순화(NHK 스타일 핵심 4점 제어)]
     function simplifySyllableToToneCurve(rawSeg) {
       if (!rawSeg || rawSeg.length === 0) return [3.0, 3.0, 3.0, 3.0];
       if (rawSeg.length <= 4) return resampleSegment(rawSeg, 28);
 
-      // 1. 이상치 및 스파이크 제거
       const filtered = [...rawSeg];
       for (let k = 1; k < filtered.length - 1; k++) {
         if (Math.abs(filtered[k] - filtered[k - 1]) > 0.9 && Math.abs(filtered[k] - filtered[k + 1]) > 0.9) {
@@ -1122,7 +1120,6 @@
         }
       }
 
-      // 2. 전체 음절을 4개의 균등 구간으로 나누어 각 구간의 중앙값(Median) 추출 (미세 떨림 제거)
       const keyPoints = [];
       const partLen = Math.floor(filtered.length / 4);
       for (let p = 0; p < 4; p++) {
@@ -1132,98 +1129,104 @@
         keyPoints.push(med);
       }
 
-      // 3. 추출된 4개의 단순 성조 골격을 부드러운 28포인트 곡선으로 보간
       return resampleSegment(keyPoints, 28);
     }
 
+    // [에너지 골짜기(Valley) 및 피크 기반 음절 분절 알고리즘]
     function alignAndNormalizeToChunks() {
-      const dynamicScaledTones = dynamicScaleHzArray(rawHzStream);
+      const rawPitches = rawFrameStream.map(f => f.pitch);
+      const dynamicScaledTones = dynamicScaleHzArray(rawPitches);
       const totalSyllablesCount = allSentenceSyllables.length;
 
-      if (totalSyllablesCount === 0) {
+      if (totalSyllablesCount === 0 || rawFrameStream.length === 0) {
         userSyllableCurves = [];
         return;
       }
 
-      // 1. 거센 자음 기식 구간 브릿징
-      const bridgedTones = [...dynamicScaledTones];
-      for (let i = 1; i < bridgedTones.length - 1; i++) {
-        if (bridgedTones[i] === null) {
-          let gapLen = 1;
-          while (i + gapLen < bridgedTones.length && bridgedTones[i + gapLen] === null) {
-            gapLen++;
-          }
-          if (gapLen <= 8 && i + gapLen < bridgedTones.length && bridgedTones[i - 1] !== null) {
-            const startVal = bridgedTones[i - 1];
-            const endVal = bridgedTones[i + gapLen];
-            for (let g = 0; g < gapLen; g++) {
-              bridgedTones[i + g] = startVal + (endVal - startVal) * ((g + 1) / (gapLen + 1));
+      // 1. 유의미한 보컬 세그먼트(음절 덩어리) 추출
+      const vowelBlocks = [];
+      let curBlock = [];
+
+      for (let i = 0; i < dynamicScaledTones.length; i++) {
+        const tone = dynamicScaledTones[i];
+        if (tone !== null) {
+          curBlock.push({ idx: i, tone: tone, rms: rawFrameStream[i].rms });
+        } else {
+          if (curBlock.length >= 4) vowelBlocks.push(curBlock);
+          curBlock = [];
+        }
+      }
+      if (curBlock.length >= 4) vowelBlocks.push(curBlock);
+
+      // 2. 단어 내부 연음(예: tiān-qì) 분할: 기계적 2등분이 아닌 에너지 최소점(Valley)에서 분할
+      let separatedSyllables = [];
+
+      vowelBlocks.forEach(block => {
+        // 해당 블록이 1개 음절 평균 길이의 1.6배 이상이면 연음으로 판단하여 분할점 탐색
+        if (block.length >= 18 && totalSyllablesCount > vowelBlocks.length) {
+          // 중간 30%~70% 영역에서 에너지가 가장 낮은 골짜기(자음 전이 구간) 탐색
+          const searchStart = Math.floor(block.length * 0.3);
+          const searchEnd = Math.floor(block.length * 0.7);
+          let minRms = Infinity, splitIdx = Math.floor(block.length / 2);
+
+          for (let k = searchStart; k <= searchEnd; k++) {
+            if (block[k].rms < minRms) {
+              minRms = block[k].rms;
+              splitIdx = k;
             }
           }
-          i += gapLen;
-        }
-      }
-
-      // 2. 음절 세그먼트 분할
-      const rawSegments = [];
-      let currentSeg = [];
-
-      for (let i = 0; i < bridgedTones.length; i++) {
-        const val = bridgedTones[i];
-        if (val !== null) {
-          currentSeg.push(val);
+          separatedSyllables.push(block.slice(0, splitIdx));
+          separatedSyllables.push(block.slice(splitIdx));
         } else {
-          if (currentSeg.length >= 5) rawSegments.push(currentSeg);
-          currentSeg = [];
+          separatedSyllables.push(block);
         }
-      }
-      if (currentSeg.length >= 5) rawSegments.push(currentSeg);
+      });
 
-      let syllableSegments = [...rawSegments];
-
-      while (syllableSegments.length < totalSyllablesCount) {
+      // 3. 목표 음절 수와 맞추기 (초과 잡음 병합 또는 부족 구간 추가 분할)
+      while (separatedSyllables.length < totalSyllablesCount) {
         let maxLen = -1, maxIdx = -1;
-        for (let i = 0; i < syllableSegments.length; i++) {
-          if (syllableSegments[i].length > maxLen) {
-            maxLen = syllableSegments[i].length;
+        for (let i = 0; i < separatedSyllables.length; i++) {
+          if (separatedSyllables[i].length > maxLen) {
+            maxLen = separatedSyllables[i].length;
             maxIdx = i;
           }
         }
         if (maxLen >= 8) {
-          const target = syllableSegments[maxIdx];
+          const target = separatedSyllables[maxIdx];
           const mid = Math.floor(target.length / 2);
-          syllableSegments.splice(maxIdx, 1, target.slice(0, mid), target.slice(mid));
+          separatedSyllables.splice(maxIdx, 1, target.slice(0, mid), target.slice(mid));
         } else break;
       }
 
-      while (syllableSegments.length > totalSyllablesCount) {
+      while (separatedSyllables.length > totalSyllablesCount) {
         let minLen = Infinity, minIdx = -1;
-        for (let i = 0; i < syllableSegments.length; i++) {
-          if (syllableSegments[i].length < minLen) {
-            minLen = syllableSegments[i].length;
+        for (let i = 0; i < separatedSyllables.length; i++) {
+          if (separatedSyllables[i].length < minLen) {
+            minLen = separatedSyllables[i].length;
             minIdx = i;
           }
         }
         if (minIdx > 0) {
-          syllableSegments[minIdx - 1] = syllableSegments[minIdx - 1].concat(syllableSegments[minIdx]);
-          syllableSegments.splice(minIdx, 1);
-        } else if (minIdx < syllableSegments.length - 1) {
-          syllableSegments[minIdx + 1] = syllableSegments[minIdx].concat(syllableSegments[minIdx + 1]);
-          syllableSegments.splice(minIdx, 1);
+          separatedSyllables[minIdx - 1] = separatedSyllables[minIdx - 1].concat(separatedSyllables[minIdx]);
+          separatedSyllables.splice(minIdx, 1);
+        } else if (minIdx < separatedSyllables.length - 1) {
+          separatedSyllables[minIdx + 1] = separatedSyllables[minIdx].concat(separatedSyllables[minIdx + 1]);
+          separatedSyllables.splice(minIdx, 1);
         } else break;
       }
 
+      // 4. 음절별 순수 피치 곡선 추출 및 NHK 단순화 적용
       userSyllableCurves = [];
 
       for (let s = 0; s < totalSyllablesCount; s++) {
-        let seg = syllableSegments[s] || [];
+        let block = separatedSyllables[s] || [];
+        let tones = block.map(b => b.tone);
 
-        if (seg.length >= 4) {
-          const cut = Math.max(1, Math.floor(seg.length * 0.04));
-          seg = seg.slice(cut, seg.length - cut);
-
-          // 단순화된 성조 곡선 산출
-          userSyllableCurves.push(simplifySyllableToToneCurve(seg));
+        if (tones.length >= 4) {
+          // 음절 시작과 끝 여백(각 4%) 정리
+          const cut = Math.max(1, Math.floor(tones.length * 0.04));
+          tones = tones.slice(cut, tones.length - cut);
+          userSyllableCurves.push(simplifySyllableToToneCurve(tones));
         } else {
           const guideFallback = allSentenceSyllables[s] && allSentenceSyllables[s].curvePoints 
             ? allSentenceSyllables[s].curvePoints[0] 
