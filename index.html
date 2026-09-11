@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>李老师의 InTone Viewer</title>
+  <script src="https://unpkg.com/pinyin-pro"></script>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Segoe UI', AppleSDGothicNeo-Regular, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f0fdf4; /* 편안한 미색/연한 민트 테마 */
+      color: #0f172a;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 16:9 가로 메인 뷰포트 */
+    .app-viewport {
+      width: 100vw;
+      height: 100vh;
+      max-width: 1020px;
+      max-height: 574px;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      border: 1px solid #e2e8f0;
+    }
+
+    /* 상단 네비게이션 헤더 (썸네일 확대에 맞춰 높이 78px로 확장) */
+    .nav-bar {
+      height: 78px;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1.5px solid #f1f5f9;
+      flex-shrink: 0;
+    }
+    .brand-area {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    /* 썸네일 크기를 68px로 확대 (핸드폰 가로모드에서도 큼직하게 식별) */
+    .brand-thumb {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      object-fit: cover;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+      border: 2px solid #fed7aa;
+      display: block;
+      flex-shrink: 0;
+      background: #ffffff;
+    }
+    .brand-titles {
+      display: flex;
+      flex-direction: column;
+      text-align: left;
+    }
+    .main-title {
+      font-size: 1.55rem;
+      font-weight: 800;
+      color: #f97316;
+      line-height: 1.15;
+    }
+    .sub-title {
+      font-size: 0.85rem;
+      color: #64748b;
+      font-weight: 600;
+      margin-top: 3px;
+    }
+
+    .nav-tools {
+      display: flex;
+      gap: 8px;
+    }
+    .tool-btn {
+      background: #f8fafc;
+      border: 1.5px solid #cbd5e1;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: #334155;
+      transition: all 0.15s;
+    }
+    .tool-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+
+    /* 메인 2단 작업 영역 */
+    .main-body {
+      flex: 1;
+      display: flex;
+      padding: 10px 14px 14px 14px;
+      gap: 12px;
+      height: calc(100% - 78px);
+      background: #f8fafc;
+    }
+
+    /* 좌측 메인 (텍스트 카드 + 캔버스) */
+    .content-left {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      height: 100%;
+    }
+
+    /* 상단 텍스트 카드 */
+    .text-card {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 8px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 85px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      border: 1px solid #e2e8f0;
+      position: relative;
+    }
+    .word-chunk-container {
+      display: flex;
+      justify-content: flex-start;
+      gap: 22px;
+      align-items: flex-end;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .word-chunk {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .chunk-hanzi {
+      font-size: 1.85rem;
+      font-weight: 800;
+      color: #1e293b;
+      letter-spacing: 2px;
+      line-height: 1.1;
+    }
+    .chunk-pinyin {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #0d9488;
+      margin-top: 2px;
+    }
+    .empty-placeholder {
+      color: #94a3b8;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    .sentence-guide-audio-btn {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      background: #f0fdfa;
+      border: 1px solid #99f6e4;
+      color: #0d9488;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .sentence-guide-audio-btn:hover { background: #ccfbf1; }
+
+    /* 하단 캔버스 디스플레이 (바이올렛 감도는 딥 네이비 배경) */
+    .canvas-card {
+      flex: 1;
+      background: #111827;
+      border-radius: 12px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.4);
+      border: 1px solid #1e293b;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* 캔버스 상단 피드백 배너 */
+    .feedback-banner {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 20px;
+      border-radius: 20px;
+      font-weight: 800;
+      font-size: 1.35rem;
+      letter-spacing: 2px;
+      display: none;
+      z-index: 5;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .badge-great { background: #22c55e; color: white; }
+    .badge-good { background: #0284c7; color: white; }
+    .badge-fair { background: #f59e0b; color: white; }
+    .badge-try { background: #64748b; color: white; }
+
+    /* 범례 라벨 */
+    .canvas-legend {
+      position: absolute;
+      bottom: 8px;
+      right: 14px;
+      display: flex;
+      gap: 14px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      pointer-events: none;
+    }
+    .canvas-legend span { display: flex; align-items: center; gap: 5px; }
+    .legend-guide { width: 10px; height: 10px; background: #4ade80; border-radius: 2px; }
+    .legend-user { width: 10px; height: 10px; background: #fb923c; border-radius: 2px; }
+
+    /* 우측 세로 사이드 버튼 바 */
+    .control-sidebar {
+      width: 110px;
+      background: #ffffff;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      gap: 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      border: 1px solid #e2e8f0;
+      flex-shrink: 0;
+    }
+    .side-btn {
+      flex: 1;
+      border-radius: 10px;
+      border: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      font-size: 0.9rem;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .side-btn svg { width: 28px; height: 28px; }
+
+    .btn-rec {
+      background: #fee2e2;
+      color: #dc2626;
+      border: 1.5px solid #fca5a5;
+    }
+    .btn-rec.recording {
+      background: #dc2626;
+      color: white;
+      animation: pulse 1.2s infinite;
+    }
+    .btn-listen {
+      background: #f0fdfa;
+      color: #0d9488;
+      border: 1.5px solid #99f6e4;
+    }
+    .btn-listen:disabled {
+      background: #f8fafc;
+      color: #cbd5e1;
+      border: 1px solid #f1f5f9;
+      cursor: not-allowed;
+    }
+    .btn-rep {
+      background: #f8fafc;
+      color: #475569;
+      border: 1.5px solid #cbd5e1;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.8; transform: scale(0.97); }
+      100% { opacity: 1; }
+    }
+
+    /* 모바일 세로모드 회전 안내 레이어 */
+    .rotate-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(15, 23, 42, 0.95);
+      color: white;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      text-align: center;
+      padding: 20px;
+    }
+    .rotate-icon {
+      width: 50px;
+      height: 50px;
+      margin-bottom: 16px;
+      animation: spinPhone 2s infinite ease-in-out;
+    }
+    @keyframes spinPhone {
+      0% { transform: rotate(0deg); }
+      50% { transform: rotate(90deg); }
+      100% { transform: rotate(0deg); }
+    }
+    @media screen and (orientation: portrait) and (max-width: 800px) {
+      .rotate-overlay { display: flex; }
+    }
+
+    /* 모달 */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-content {
+      background: white;
+      width: 90%;
+      max-width: 540px;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 20px 25px rgba(0,0,0,0.15);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .modal-header h3 { margin: 0; font-size: 1.15rem; color: #1e293b; }
+    .close-btn { background: none; border: none; font-size: 1.4rem; cursor: pointer; color: #94a3b8; }
+    .input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .input-row input { flex: 1; padding: 10px; border-radius: 6px; border: 1.5px solid #cbd5e1; font-size: 0.95rem; }
+    .input-row input:focus { border-color: #0d9488; outline: none; }
+    .input-row button { padding: 10px 16px; background: #0f766e; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    .chips-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .chips-row span { background: #f1f5f9; padding: 5px 10px; border-radius: 12px; font-size: 0.8rem; cursor: pointer; border: 1px solid #e2e8f0; }
+    .chips-row span:hover { background: #ffedd5; color: #ea580c; }
+    .report-textarea { width: 100%; height: 180px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: monospace; font-size: 0.85rem; resize: none; background: #f8fafc; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+    .modal-actions button { padding: 8px 14px; font-size: 0.85rem; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <!-- 모바일 세로모드 회전 유도 -->
+  <div class="rotate-overlay">
+    <svg class="rotate-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V7M4 7l8-4 8 4M4 7l8 4 8-4"/>
+    </svg>
+    <h2 style="margin:0 0 8px 0; font-size: 1.3rem;">화면을 가로로 돌려주세요</h2>
+    <p style="margin:0; font-size:0.9rem; color: #cbd5e1;">운율곡선을 시각적으로 비교하기 위해 16:9 가로 화면이 필요합니다.</p>
+  </div>
+
+  <!-- 메인 뷰포트 -->
+  <div class="app-viewport">
+    
+    <!-- 네비게이션 헤더 (확대된 썸네일 탑재) -->
+    <div class="nav-bar">
+      <div class="brand-area">
+        <img src="profile1.png" alt="李老师" class="brand-thumb" onerror="this.src='profile.png'" />
+        <div class="brand-titles">
+          <span class="main-title">李老师의 InTone Viewer</span>
+          <span class="sub-title">사이버한국외국어대학교 중국어학부</span>
+        </div>
+      </div>
+      <div class="nav-tools">
+        <button class="tool-btn" onclick="openInputModal()">✏️ 문장 입력</button>
+        <button class="tool-btn" onclick="triggerFileUpload()">🎧 음성 파일 등록</button>
+        <input type="file" id="audioFileInput" accept="audio/*" style="display:none;" onchange="handleAudioUpload(event)" />
+      </div>
+    </div>
+
+    <!-- 2단 본문 -->
+    <div class="main-body">
+      
+      <!-- 좌측 콘텐츠 -->
+      <div class="content-left">
+        <div class="text-card">
+          <button class="sentence-guide-audio-btn" id="guidePlayBtn" onclick="playGuideAudio()">🔊 가이드 듣기</button>
+          <div class="word-chunk-container" id="chunkContainer">
+            <div class="empty-placeholder">상단의 [✏️ 문장 입력]을 눌러 연습할 문장을 넣어주세요.</div>
+          </div>
+        </div>
+
+        <!-- 캔버스 -->
+        <div class="canvas-card">
+          <div id="feedbackBanner" class="feedback-banner"></div>
+          <canvas id="pitchCanvas" width="800" height="300"></canvas>
+          <div class="canvas-legend">
+            <span><div class="legend-guide"></div> 기준 가이드 (녹색)</span>
+            <span><div class="legend-user"></div> 내 발음 (오렌지)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 우측 컨트롤 바 -->
+      <div class="control-sidebar">
+        <button id="recBtn" class="side-btn btn-rec" onclick="toggleRecord()">
+          <svg fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>
+          <span id="recBtnText">녹음</span>
+        </button>
+        <button id="playBtn" class="side-btn btn-listen" onclick="togglePlayback()" disabled>
+          <svg fill="currentColor" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+          <span id="playBtnText">재생</span>
+        </button>
+        <button class="side-btn btn-rep" onclick="openReportModal()">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <span>Report</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 문장 입력 모달 -->
+  <div id="inputModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>연습할 중국어 문장 입력</h3>
+        <button class="close-btn" onclick="closeInputModal()">&times;</button>
+      </div>
+      <div class="input-row">
+        <input type="text" id="modalInput" placeholder="연습할 중국어 입력 (예: 你是韩国人吗？)" value="" />
+        <button onclick="applyFromModal()">생성</button>
+      </div>
+      <div class="chips-row">
+        <span onclick="setFromModal('mā má mǎ mà')">mā má mǎ mà</span>
+        <span onclick="setFromModal('你好！')">你好！</span>
+        <span onclick="setFromModal('我是韩国人。')">我是韩国人。</span>
+        <span onclick="setFromModal('我学汉语。')">我学汉语。</span>
+        <span onclick="setFromModal('你是韩国人吗？')">你是韩国人吗？</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 리포트 모달 -->
+  <div id="reportModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>📋 오늘의 발음 연습 Report</h3>
+        <button class="close-btn" onclick="closeReportModal()">&times;</button>
+      </div>
+      <textarea id="reportTextarea" class="report-textarea" readonly></textarea>
+      <div class="modal-actions">
+        <button style="background:#f1f5f9; color:#64748b;" onclick="clearPracticeHistory()">초기화</button>
+        <button style="background:#0284c7; color:white;" onclick="downloadReportTxt()">.txt 저장</button>
+        <button style="background:#0f766e; color:white;" onclick="copyReportText()">전체 복사</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TONE_TEMPLATES = {
+      1: [4.8, 4.8, 4.8, 4.8],
+      2: [3.2, 3.6, 4.2, 4.8],
+      3: [2.5, 1.4, 2.0, 3.8],
+      "3_half": [2.4, 1.8, 1.4, 1.2],
+      4: [4.8, 3.8, 2.4, 1.4]
+    };
+
+    let activeChunks = [];
+    let currentSentence = "";
+    let practiceHistory = [];
+
+    const canvas = document.getElementById("pitchCanvas");
+    const ctx = canvas.getContext("2d");
+    const recBtn = document.getElementById("recBtn");
+    const recBtnText = document.getElementById("recBtnText");
+    const playBtn = document.getElementById("playBtn");
+    const playBtnText = document.getElementById("playBtnText");
+    const feedbackBanner = document.getElementById("feedbackBanner");
+
+    let isRecording = false;
+    let audioCtx, analyser, micStream;
+    let rawHzStream = [];
+    let silenceStartTimestamp = null;
+    let hasSpeechStarted = false;
+    let animLoopId;
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let recordedAudioUrl = null;
+    let audioElement = null;
+    let isPlaying = false;
+
+    let uploadedAudioUrl = null;
+    let uploadedAudioElement = null;
+    let isGuidePlaying = false;
+
+    let normalizedUserSegments = [];
+
+    function openInputModal() {
+      document.getElementById("modalInput").value = currentSentence;
+      document.getElementById("inputModal").style.display = "flex";
+    }
+    function closeInputModal() {
+      document.getElementById("inputModal").style.display = "none";
+    }
+    function setFromModal(txt) {
+      document.getElementById("modalInput").value = txt;
+      applyFromModal();
+    }
+    function applyFromModal() {
+      const val = document.getElementById("modalInput").value.trim();
+      if (!val) {
+        alert("문장을 입력해 주세요.");
+        return;
+      }
+      currentSentence = val;
+      closeInputModal();
+      applySentence(currentSentence);
+    }
+
+    function triggerFileUpload() {
+      document.getElementById("audioFileInput").click();
+    }
+
+    function segmentChineseSyntax(text) {
+      if (text.includes(" ")) {
+        return text.split(/\s+/).filter(w => /[\u4e00-\u9fa5a-zA-Z]/.test(w));
+      }
+      const cleanText = text.replace(/[，。？！,?!.\s]/g, "");
+      if (!cleanText) return [];
+
+      let tokens = [];
+      if (typeof Intl !== "undefined" && Intl.Segmenter) {
+        const seg = new Intl.Segmenter("zh-CN", { granularity: "word" });
+        tokens = Array.from(seg.segment(cleanText)).map(s => s.segment.trim()).filter(w => w.length > 0);
+      } else {
+        tokens = cleanText.split("");
+      }
+
+      const result = [];
+      const suffixes = ["人", "们", "家", "员", "生", "子", "头", "儿"];
+      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
+      const pronouns = ["你", "我", "他", "她", "它", "谁", "这", "那"];
+
+      for (let i = 0; i < tokens.length; i++) {
+        let cur = tokens[i];
+        if (cur.length === 2 && pronouns.includes(cur[0]) && cur[1] === "是") {
+          result.push(cur[0]);
+          result.push(cur[1]);
+          continue;
+        }
+        if (suffixes.includes(cur) && result.length > 0) {
+          result[result.length - 1] += cur;
+          continue;
+        }
+        if (particles.includes(cur) && result.length > 0) {
+          result[result.length - 1] += cur;
+          continue;
+        }
+        result.push(cur);
+      }
+      return result;
+    }
+
+    function applySentence(rawText) {
+      clearPlaybackAudio();
+      hideFeedback();
+      normalizedUserSegments = [];
+      activeChunks = [];
+
+      const chunkWords = segmentChineseSyntax(rawText);
+      const allSyllables = [];
+      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "의", "得", "地", "了", "着", "过"];
+
+      chunkWords.forEach((word, wIdx) => {
+        if (window.pinyinPro) {
+          const pData = pinyinPro.pinyin(word, { type: 'all' });
+          pData.forEach(item => {
+            if (/[\u4e00-\u9fa5a-zA-Z]/.test(item.origin)) {
+              const isParticle = particles.includes(item.origin);
+              const tone = isParticle ? 0 : (item.num || 0);
+              allSyllables.push({
+                wordIdx: wIdx,
+                char: item.origin,
+                pinyin: item.pinyin,
+                tone: tone,
+                isParticle: isParticle
+              });
+            }
+          });
+        }
+      });
+
+      for (let i = 0; i < allSyllables.length; i++) {
+        const cur = allSyllables[i];
+        const next = (i < allSyllables.length - 1) ? allSyllables[i + 1] : null;
+
+        if (cur.tone === 3) {
+          if (next) {
+            if (next.tone === 3) {
+              cur.actualTone = 2;
+              cur.baseCurve = TONE_TEMPLATES[2];
+            } else {
+              cur.actualTone = "3_half";
+              cur.baseCurve = TONE_TEMPLATES["3_half"];
+            }
+          } else {
+            cur.actualTone = 3;
+            cur.baseCurve = TONE_TEMPLATES[3];
+          }
+        } else if (cur.tone === 0 || cur.isParticle) {
+          cur.actualTone = 0;
+          cur.baseCurve = null;
+        } else {
+          cur.actualTone = cur.tone;
+          cur.baseCurve = TONE_TEMPLATES[cur.tone] || TONE_TEMPLATES[1];
+        }
+      }
+
+      chunkWords.forEach((word, wIdx) => {
+        const syls = allSyllables.filter(s => s.wordIdx === wIdx);
+        if (syls.length === 0) return;
+
+        let continuousCurve = [];
+        syls.forEach(s => {
+          if (s.actualTone === 0 || s.isParticle) {
+            const lastVal = continuousCurve.length > 0 ? continuousCurve[continuousCurve.length - 1] : 2.5;
+            const tail1 = Math.max(1.2, lastVal * 0.85);
+            const tail2 = Math.max(1.1, lastVal * 0.70);
+            continuousCurve.push(tail1, tail2);
+          } else {
+            if (continuousCurve.length > 0) {
+              const lastVal = continuousCurve[continuousCurve.length - 1];
+              const nextVal = s.baseCurve[0];
+              continuousCurve.push((lastVal + nextVal) / 2);
+            }
+            continuousCurve = continuousCurve.concat(s.baseCurve);
+          }
+        });
+
+        activeChunks.push({
+          hanzi: syls.map(s => s.char).join(""),
+          pinyin: syls.map(s => s.pinyin).join(" "),
+          curve: continuousCurve
+        });
+      });
+
+      updateChunkHeaders();
+      drawCanvas();
+    }
+
+    function updateChunkHeaders() {
+      const container = document.getElementById("chunkContainer");
+      if (activeChunks.length === 0) {
+        container.innerHTML = `<div class="empty-placeholder">상단의 [✏️ 문장 입력]을 눌러 연습할 문장을 넣어주세요.</div>`;
+        return;
+      }
+      container.innerHTML = activeChunks.map(c => `
+        <div class="word-chunk">
+          <div class="chunk-hanzi">${c.hanzi}</div>
+          <div class="chunk-pinyin">${c.pinyin}</div>
+        </div>
+      `).join("");
+    }
+
+    function drawCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const topPad = 30;
+      const bottomPad = 30;
+      const plotHeight = canvas.height - topPad - bottomPad;
+
+      ctx.lineWidth = 1;
+      for (let level = 1; level <= 5; level++) {
+        const y = canvas.height - bottomPad - ((level - 1) / 4) * plotHeight;
+        ctx.strokeStyle = (level === 5 || level === 1) ? "#334155" : "#1e293b";
+        ctx.beginPath();
+        ctx.moveTo(35, y);
+        ctx.lineTo(canvas.width - 20, y);
+        ctx.stroke();
+
+        ctx.fillStyle = "#64748b";
+        ctx.font = "bold 11px sans-serif";
+        ctx.fillText(level + "도", 10, y + 4);
+      }
+
+      const numChunks = activeChunks.length;
+      if (numChunks === 0) return;
+
+      const marginX = 45;
+      const usableWidth = canvas.width - marginX * 2;
+      const chunkWidth = usableWidth / numChunks;
+
+      for (let i = 0; i <= numChunks; i++) {
+        const x = marginX + i * chunkWidth;
+        ctx.strokeStyle = "#1e293b";
+        ctx.beginPath();
+        ctx.moveTo(x, topPad);
+        ctx.lineTo(x, canvas.height - bottomPad);
+        ctx.stroke();
+      }
+
+      // [기준선] 밝은 녹색/라임 (#4ade80)
+      ctx.save();
+      ctx.strokeStyle = "#4ade80";
+      ctx.lineWidth = 7.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      activeChunks.forEach((chunk, cIdx) => {
+        const segStartX = marginX + cIdx * chunkWidth + 14;
+        const segWidth = chunkWidth - 28;
+
+        ctx.beginPath();
+        chunk.curve.forEach((val, pIdx) => {
+          const x = segStartX + (pIdx / (chunk.curve.length - 1)) * segWidth;
+          const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
+          if (pIdx === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      });
+      ctx.restore();
+
+      // [학생선] 선명한 오렌지/다홍 (#fb923c)
+      if (normalizedUserSegments.length > 0) {
+        ctx.save();
+        ctx.strokeStyle = "#fb923c";
+        ctx.lineWidth = 7.5;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        normalizedUserSegments.forEach((segment, cIdx) => {
+          if (!segment || segment.length === 0 || cIdx >= numChunks) return;
+
+          const segStartX = marginX + cIdx * chunkWidth + 14;
+          const segWidth = chunkWidth - 28;
+
+          ctx.beginPath();
+          segment.forEach((val, pIdx) => {
+            const x = segStartX + (pIdx / (segment.length - 1)) * segWidth;
+            const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
+            if (pIdx === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        });
+        ctx.restore();
+      }
+    }
+
+    async function handleAudioUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      if (uploadedAudioElement) {
+        uploadedAudioElement.pause();
+        uploadedAudioElement = null;
+      }
+      if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
+
+      uploadedAudioUrl = URL.createObjectURL(file);
+      uploadedAudioElement = new Audio(uploadedAudioUrl);
+      uploadedAudioElement.onended = () => {
+        isGuidePlaying = false;
+        document.getElementById("guidePlayBtn").innerText = "🔊 가이드 듣기";
+      };
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const audioBuffer = await tempCtx.decodeAudioData(arrayBuffer);
+        extractPitchFromAudioBuffer(audioBuffer);
+        tempCtx.close();
+      } catch (err) {
+        alert("음성 파일 디코딩에 실패했습니다.");
+      }
+    }
+
+    function extractPitchFromAudioBuffer(audioBuffer) {
+      const rawData = audioBuffer.getChannelData(0);
+      const sampleRate = audioBuffer.sampleRate;
+      const windowSize = 2048;
+      const stepSize = 512;
+      const extractedHz = [];
+
+      for (let i = 0; i < rawData.length - windowSize; i += stepSize) {
+        const slice = rawData.subarray(i, i + windowSize);
+        const res = detectPitchAndVolume(slice, sampleRate);
+        if (res.hasVoice) extractedHz.push(res.pitch);
+        else extractedHz.push(null);
+      }
+
+      const toneLevels = dynamicScaleHzArray(extractedHz);
+      const segments = [];
+      let cur = [];
+      for (let p of toneLevels) {
+        if (p !== null) cur.push(p);
+        else {
+          if (cur.length >= 6) segments.push(cur);
+          cur = [];
+        }
+      }
+      if (cur.length >= 6) segments.push(cur);
+
+      const targetCount = activeChunks.length;
+      let merged = [...segments];
+      while (merged.length > targetCount) {
+        let minLen = Infinity, minIdx = -1;
+        for (let i = 0; i < merged.length; i++) {
+          if (merged[i].length < minLen) { minLen = merged[i].length; minIdx = i; }
+        }
+        if (minIdx > 0) {
+          merged[minIdx - 1] = merged[minIdx - 1].concat(merged[minIdx]);
+          merged.splice(minIdx, 1);
+        } else if (minIdx < merged.length - 1) {
+          merged[minIdx + 1] = merged[minIdx].concat(merged[minIdx + 1]);
+          merged.splice(minIdx, 1);
+        } else break;
+      }
+
+      merged.forEach((seg, idx) => {
+        if (idx < activeChunks.length) {
+          activeChunks[idx].curve = resampleSegment(seg, 35);
+        }
+      });
+      drawCanvas();
+    }
+
+    function playGuideAudio() {
+      if (activeChunks.length === 0) {
+        alert("먼저 연습할 문장을 입력해 주세요.");
+        return;
+      }
+      const gBtn = document.getElementById("guidePlayBtn");
+      if (uploadedAudioElement) {
+        if (isGuidePlaying) {
+          uploadedAudioElement.pause();
+          uploadedAudioElement.currentTime = 0;
+          isGuidePlaying = false;
+          gBtn.innerText = "🔊 가이드 듣기";
+        } else {
+          uploadedAudioElement.play();
+          isGuidePlaying = true;
+          gBtn.innerText = "■ 중지";
+        }
+      } else {
+        const speakText = activeChunks.map(c => c.hanzi).join(" ");
+        if (!speakText) return;
+        const utter = new SpeechSynthesisUtterance(speakText);
+        utter.lang = "zh-CN";
+        utter.rate = 0.85;
+        speechSynthesis.cancel();
+        speechSynthesis.speak(utter);
+      }
+    }
+
+    async function toggleRecord() {
+      if (activeChunks.length === 0) {
+        alert("먼저 연습할 문장을 입력해 주세요.");
+        return;
+      }
+      if (isRecording) {
+        finishAndAlign();
+        return;
+      }
+      clearPlaybackAudio();
+      hideFeedback();
+
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(micStream);
+
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+
+        audioChunks = [];
+        try {
+          mediaRecorder = new MediaRecorder(micStream, { mimeType: 'audio/webm' });
+        } catch (e) {
+          mediaRecorder = new MediaRecorder(micStream);
+        }
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+        mediaRecorder.start(100);
+
+        isRecording = true;
+        hasSpeechStarted = false;
+        silenceStartTimestamp = null;
+        rawHzStream = [];
+        normalizedUserSegments = [];
+
+        recBtn.classList.add("recording");
+        recBtnText.innerText = "정지";
+
+        drawCanvas();
+        sampleLoop();
+      } catch (err) {
+        alert("마이크 사용 권한이 필요합니다.");
+      }
+    }
+
+    function sampleLoop() {
+      if (!isRecording) return;
+      const buffer = new Float32Array(analyser.fftSize);
+      analyser.getFloatTimeDomainData(buffer);
+      const result = detectPitchAndVolume(buffer, audioCtx.sampleRate);
+      const currentTime = performance.now();
+
+      if (result.hasVoice) {
+        hasSpeechStarted = true;
+        silenceStartTimestamp = null;
+        rawHzStream.push(result.pitch);
+      } else {
+        if (hasSpeechStarted) {
+          rawHzStream.push(null);
+          if (silenceStartTimestamp === null) {
+            silenceStartTimestamp = currentTime;
+          } else {
+            const silentDuration = (currentTime - silenceStartTimestamp) / 1000;
+            if (silentDuration >= 1.0) {
+              finishAndAlign();
+              return;
+            }
+          }
+        }
+      }
+      animLoopId = requestAnimationFrame(sampleLoop);
+    }
+
+    function finishAndAlign() {
+      isRecording = false;
+      cancelAnimationFrame(animLoopId);
+
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+          recordedAudioUrl = URL.createObjectURL(audioBlob);
+          audioElement = new Audio(recordedAudioUrl);
+          audioElement.onended = () => {
+            isPlaying = false;
+            playBtnText.innerText = "재생";
+          };
+          playBtn.disabled = false;
+        };
+        mediaRecorder.stop();
+      }
+
+      if (micStream) micStream.getTracks().forEach(t => t.stop());
+      if (audioCtx) audioCtx.close();
+
+      recBtn.classList.remove("recording");
+      recBtnText.innerText = "녹음";
+
+      alignAndNormalizeToChunks();
+      drawCanvas();
+      calculateSimilarityAndFeedback();
+    }
+
+    function togglePlayback() {
+      if (!audioElement) return;
+      if (isPlaying) {
+        audioElement.pause();
+        audioElement.currentTime = 0;
+        isPlaying = false;
+        playBtnText.innerText = "재생";
+      } else {
+        speechSynthesis.cancel();
+        if (uploadedAudioElement) uploadedAudioElement.pause();
+        audioElement.play();
+        isPlaying = true;
+        playBtnText.innerText = "중지";
+      }
+    }
+
+    function clearPlaybackAudio() {
+      if (audioElement) { audioElement.pause(); audioElement = null; }
+      if (recordedAudioUrl) { URL.revokeObjectURL(recordedAudioUrl); recordedAudioUrl = null; }
+      isPlaying = false;
+      playBtnText.innerText = "재생";
+      playBtn.disabled = true;
+    }
+
+    function hideFeedback() {
+      feedbackBanner.style.display = "none";
+      feedbackBanner.className = "feedback-banner";
+      feedbackBanner.innerHTML = "";
+    }
+
+    function detectPitchAndVolume(buffer, sampleRate) {
+      let sumSquares = 0;
+      for (let i = 0; i < buffer.length; i++) sumSquares += buffer[i] * buffer[i];
+      const rms = Math.sqrt(sumSquares / buffer.length);
+      if (rms < 0.024) return { hasVoice: false, pitch: 0 };
+
+      let r1 = 0, r2 = buffer.length - 1;
+      const thres = 0.2;
+      for (let i = 0; i < buffer.length / 2; i++) {
+        if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
+      }
+      for (let i = 1; i < buffer.length / 2; i++) {
+        if (Math.abs(buffer[buffer.length - i]) < thres) { r2 = buffer.length - i; break; }
+      }
+
+      const trimmed = buffer.slice(r1, r2);
+      const len = trimmed.length;
+      const c = new Array(len).fill(0);
+      for (let i = 0; i < len; i++) {
+        for (let j = 0; j < len - i; j++) c[i] += trimmed[j] * trimmed[j + i];
+      }
+
+      let d = 0;
+      while (c[d] > c[d + 1]) d++;
+      let maxVal = -1, maxPos = -1;
+      for (let i = d; i < len; i++) {
+        if (c[i] > maxVal) { maxVal = c[i]; maxPos = i; }
+      }
+
+      if (maxVal / c[0] < 0.38) return { hasVoice: false, pitch: 0 };
+      const hz = sampleRate / maxPos;
+      if (hz < 65 || hz > 450) return { hasVoice: false, pitch: 0 };
+      return { hasVoice: true, pitch: hz };
+    }
+
+    function dynamicScaleHzArray(hzArray) {
+      const validHz = hzArray.filter(h => h !== null && h > 0);
+      if (validHz.length === 0) return hzArray.map(() => null);
+
+      validHz.sort((a, b) => a - b);
+      const p5 = validHz[Math.floor(validHz.length * 0.05)];
+      const p95 = validHz[Math.floor(validHz.length * 0.95)];
+
+      const minSemi = 12 * Math.log2(p5);
+      const maxSemi = 12 * Math.log2(p95);
+      const semitoneRange = Math.max(8.0, maxSemi - minSemi);
+
+      return hzArray.map(hz => {
+        if (hz === null) return null;
+        const curSemi = 12 * Math.log2(hz);
+        let norm = (curSemi - minSemi) / semitoneRange;
+        norm = Math.max(0, Math.min(1, norm));
+        return 1.4 + norm * 3.4;
+      });
+    }
+
+    function alignAndNormalizeToChunks() {
+      const dynamicScaledTones = dynamicScaleHzArray(rawHzStream);
+      const rawSegments = [];
+      let currentSeg = [];
+
+      for (let i = 0; i < dynamicScaledTones.length; i++) {
+        const val = dynamicScaledTones[i];
+        if (val !== null) currentSeg.push(val);
+        else {
+          if (currentSeg.length >= 5) rawSegments.push(currentSeg);
+          currentSeg = [];
+        }
+      }
+      if (currentSeg.length >= 5) rawSegments.push(currentSeg);
+
+      if (rawSegments.length === 0) {
+        normalizedUserSegments = [];
+        return;
+      }
+
+      const targetCount = activeChunks.length;
+      let mergedSegments = [...rawSegments];
+
+      while (mergedSegments.length > targetCount) {
+        let minLen = Infinity, minIdx = -1;
+        for (let i = 0; i < mergedSegments.length; i++) {
+          if (mergedSegments[i].length < minLen) { minLen = mergedSegments[i].length; minIdx = i; }
+        }
+        if (minIdx > 0) {
+          mergedSegments[minIdx - 1] = mergedSegments[minIdx - 1].concat(mergedSegments[minIdx]);
+          mergedSegments.splice(minIdx, 1);
+        } else if (minIdx < mergedSegments.length - 1) {
+          mergedSegments[minIdx + 1] = mergedSegments[minIdx].concat(mergedSegments[minIdx + 1]);
+          mergedSegments.splice(minIdx, 1);
+        } else break;
+      }
+
+      normalizedUserSegments = mergedSegments.map(seg => resampleSegment(seg, 40));
+    }
+
+    function resampleSegment(arr, targetLen) {
+      if (arr.length <= 1) return arr;
+      const resampled = [];
+      const step = (arr.length - 1) / (targetLen - 1);
+      for (let i = 0; i < targetLen; i++) {
+        const origIdx = i * step;
+        const low = Math.floor(origIdx);
+        const high = Math.min(arr.length - 1, Math.ceil(origIdx));
+        const fraction = origIdx - low;
+        const val = arr[low] * (1 - fraction) + arr[high] * fraction;
+        resampled.push(val);
+      }
+      return resampled;
+    }
+
+    function calculateSimilarityAndFeedback() {
+      if (normalizedUserSegments.length === 0 || activeChunks.length === 0) return;
+
+      let totalScore = 0;
+      let comparedCount = 0;
+
+      for (let cIdx = 0; cIdx < activeChunks.length; cIdx++) {
+        const guideCurve = activeChunks[cIdx].curve;
+        const userCurve = normalizedUserSegments[cIdx];
+        if (!userCurve || userCurve.length < 5) continue;
+
+        const resampledGuide = resampleSegment(guideCurve, userCurve.length);
+        let slopeErrors = [];
+        for (let i = 0; i < userCurve.length - 1; i++) {
+          const guideSlope = resampledGuide[i + 1] - resampledGuide[i];
+          const userSlope = userCurve[i + 1] - userCurve[i];
+          slopeErrors.push(Math.abs(guideSlope - userSlope));
+        }
+
+        const avgSlopeError = slopeErrors.reduce((a, b) => a + b, 0) / slopeErrors.length;
+        const corr = calcPearsonCorrelation(resampledGuide, userCurve);
+        let slopeScore = Math.max(0, 100 - avgSlopeError * 180);
+        let shapeScore = Math.max(0, (corr + 1) * 50);
+
+        totalScore += (slopeScore * 0.6 + shapeScore * 0.4);
+        comparedCount++;
+      }
+
+      const finalSimilarity = comparedCount > 0 ? Math.round(totalScore / comparedCount) : 0;
+      displayFeedbackBadge(finalSimilarity);
+    }
+
+    function calcPearsonCorrelation(x, y) {
+      const n = x.length;
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+      for (let i = 0; i < n; i++) {
+        sumX += x[i]; sumY += y[i]; sumXY += x[i] * y[i];
+        sumX2 += x[i] * x[i]; sumY2 += y[i] * y[i];
+      }
+      const num = n * sumXY - sumX * sumY;
+      const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+      return den === 0 ? 0 : num / den;
+    }
+
+    function displayFeedbackBadge(score) {
+      feedbackBanner.style.display = "flex";
+      let badgeClass = "", feedbackWord = "";
+
+      if (score >= 90) { badgeClass = "badge-great"; feedbackWord = "赞！"; }
+      else if (score >= 60) { badgeClass = "badge-good"; feedbackWord = "好！"; }
+      else if (score >= 30) { badgeClass = "badge-fair"; feedbackWord = "可以。"; }
+      else { badgeClass = "badge-try"; feedbackWord = "辛苦了。"; }
+
+      feedbackBanner.className = `feedback-banner ${badgeClass}`;
+      feedbackBanner.innerText = feedbackWord;
+
+      addPracticeRecord(currentSentence, feedbackWord);
+    }
+
+    function getNowFormattedString() {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    }
+
+    function addPracticeRecord(sentence, resultGrade) {
+      practiceHistory.push({
+        sentence: sentence || "연습 문장",
+        grade: resultGrade,
+        timestamp: getNowFormattedString()
+      });
+    }
+
+    function openReportModal() {
+      const modal = document.getElementById("reportModal");
+      const textarea = document.getElementById("reportTextarea");
+      if (practiceHistory.length === 0) {
+        textarea.value = "아직 연습한 기록이 없습니다.";
+      } else {
+        let reportStr = `[ CUFS 李老师의 InTone Viewer 리포트 ]\n총 연습 횟수: ${practiceHistory.length}회\n==================================\n\n`;
+        practiceHistory.forEach((item, idx) => {
+          reportStr += `[${idx + 1}] ${item.timestamp}\n    문장: ${item.sentence}\n    평가: ${item.grade}\n\n`;
+        });
+        textarea.value = reportStr;
+      }
+      modal.style.display = "flex";
+    }
+
+    function closeReportModal() {
+      document.getElementById("reportModal").style.display = "none";
+    }
+
+    function copyReportText() {
+      const textarea = document.getElementById("reportTextarea");
+      if (!textarea.value || practiceHistory.length === 0) return;
+      navigator.clipboard.writeText(textarea.value).then(() => alert("리포트가 복사되었습니다!"));
+    }
+
+    function downloadReportTxt() {
+      const textarea = document.getElementById("reportTextarea");
+      if (!textarea.value || practiceHistory.length === 0) return;
+      const blob = new Blob([textarea.value], { type: "text/plain;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `InToneViewer_Report_${getNowFormattedString().slice(0, 10)}.txt`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    function clearPracticeHistory() {
+      if (confirm("연습 기록을 초기화하시겠습니까?")) {
+        practiceHistory = [];
+        document.getElementById("reportTextarea").value = "초기화되었습니다.";
+      }
+    }
+
+    window.onclick = function(event) {
+      if (event.target === document.getElementById("reportModal")) closeReportModal();
+      if (event.target === document.getElementById("inputModal")) closeInputModal();
+    };
+
+    // 초기 실행: 빈 화면 대기 상태 렌더링
+    drawCanvas();
+  </script>
+</body>
+</html>
