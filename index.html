@@ -130,6 +130,7 @@
       height: 100%;
     }
 
+    /* 상단 텍스트 카드 */
     .text-card {
       background: #ffffff;
       border-radius: 10px;
@@ -189,6 +190,32 @@
       cursor: pointer;
     }
 
+    /* 흰색 카드 내 중앙에 배치되는 피드백 배너 */
+    .feedback-banner {
+      position: absolute;
+      top: 50%;
+      left: 58%;
+      transform: translate(-50%, -50%);
+      padding: 4px 16px;
+      border-radius: 14px;
+      font-weight: 800;
+      font-size: 1.05rem;
+      letter-spacing: 1px;
+      display: none;
+      z-index: 10;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      animation: popIn 0.25s ease-out;
+      white-space: nowrap;
+    }
+    @keyframes popIn {
+      0% { transform: translate(-50%, -50%) scale(0.85); opacity: 0; }
+      100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    }
+    .badge-great { background: #22c55e; color: white; border: 1.5px solid #86efac; }
+    .badge-good  { background: #0284c7; color: white; border: 1.5px solid #7dd3fc; }
+    .badge-fair  { background: #f59e0b; color: white; border: 1.5px solid #fde68a; }
+    .badge-try   { background: #64748b; color: white; border: 1.5px solid #cbd5e1; }
+
     .canvas-card {
       flex: 1;
       background: #111827;
@@ -203,30 +230,6 @@
       height: 100%;
       display: block;
     }
-
-    .feedback-banner {
-      position: absolute;
-      top: 8px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 4px 18px;
-      border-radius: 16px;
-      font-weight: 800;
-      font-size: 1.15rem;
-      letter-spacing: 1px;
-      display: none;
-      z-index: 10;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      animation: popIn 0.25s ease-out;
-    }
-    @keyframes popIn {
-      0% { transform: translate(-50%, -8px) scale(0.9); opacity: 0; }
-      100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
-    }
-    .badge-great { background: #22c55e; color: white; border: 1.5px solid #86efac; }
-    .badge-good  { background: #0284c7; color: white; border: 1.5px solid #7dd3fc; }
-    .badge-fair  { background: #f59e0b; color: white; border: 1.5px solid #fde68a; }
-    .badge-try   { background: #64748b; color: white; border: 1.5px solid #cbd5e1; }
 
     .canvas-legend {
       position: absolute;
@@ -397,15 +400,17 @@
 
     <div class="main-body">
       <div class="content-left">
+        <!-- 흰색 카드 안에 피드백 배너 배치 -->
         <div class="text-card">
           <button class="sentence-guide-audio-btn" id="guidePlayBtn" onclick="playGuideAudio()">🔊 가이드 듣기</button>
           <div class="word-chunk-container" id="chunkContainer">
             <div class="empty-placeholder">상단의 [✏️ 문장 입력]을 눌러 연습할 문장을 넣어주세요.</div>
           </div>
+          <!-- 피드백 배너 -->
+          <div id="feedbackBanner" class="feedback-banner"></div>
         </div>
 
         <div class="canvas-card" id="canvasCard">
-          <div id="feedbackBanner" class="feedback-banner"></div>
           <canvas id="pitchCanvas"></canvas>
           <div class="canvas-legend">
             <span><div class="legend-guide"></div> 기준 가이드 (녹색)</span>
@@ -591,7 +596,7 @@
 
       const chunkWords = segmentChineseSyntax(rawText);
       const allSyllables = [];
-      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "的", "得", "地", "了", "着", "过"];
+      const particles = ["吗", "呢", "吧", "啊", "呀", "啦", "의", "得", "地", "了", "着", "过"];
 
       chunkWords.forEach((word, wIdx) => {
         if (window.pinyinPro) {
@@ -1047,7 +1052,6 @@
       feedbackBanner.innerHTML = "";
     }
 
-    // 피치 검출 감도 및 대역 최적화
     function detectPitchAndVolume(buffer, sampleRate) {
       let sumSquares = 0;
       for (let i = 0; i < buffer.length; i++) sumSquares += buffer[i] * buffer[i];
@@ -1104,7 +1108,6 @@
       });
     }
 
-    // [기식 무음 확장 브릿징 및 유효 모음 세그먼트 보존 알고리즘]
     function alignAndNormalizeToChunks() {
       const dynamicScaledTones = dynamicScaleHzArray(rawHzStream);
       const totalSyllablesCount = allSentenceSyllables.length;
@@ -1114,7 +1117,6 @@
         return;
       }
 
-      // 1. [확장 브릿징]: 거센소리(q, c, ch, p 등) 기식 구간(최대 8프레임, 약 140ms)을 연결하여 가짜 무음 세그먼트 생성 방지
       const bridgedTones = [...dynamicScaledTones];
       for (let i = 1; i < bridgedTones.length - 1; i++) {
         if (bridgedTones[i] === null) {
@@ -1133,7 +1135,6 @@
         }
       }
 
-      // 2. 음절 세그먼트 분할 (유효한 모음 발화 구간만 추출)
       const rawSegments = [];
       let currentSeg = [];
 
@@ -1142,7 +1143,6 @@
         if (val !== null) {
           currentSeg.push(val);
         } else {
-          // 최소 5프레임 이상 발화가 유지된 유의미한 모음 구간만 인정 (바닥 무음 껍데기 제외)
           if (currentSeg.length >= 5) rawSegments.push(currentSeg);
           currentSeg = [];
         }
@@ -1151,7 +1151,6 @@
 
       let syllableSegments = [...rawSegments];
 
-      // 연음으로 뭉쳐진 긴 구간 분할
       while (syllableSegments.length < totalSyllablesCount) {
         let maxLen = -1, maxIdx = -1;
         for (let i = 0; i < syllableSegments.length; i++) {
@@ -1169,7 +1168,6 @@
         }
       }
 
-      // 잡음으로 생긴 짧은 구간 병합
       while (syllableSegments.length > totalSyllablesCount) {
         let minLen = Infinity, minIdx = -1;
         for (let i = 0; i < syllableSegments.length; i++) {
@@ -1193,11 +1191,9 @@
         let seg = syllableSegments[s] || [];
 
         if (seg.length >= 4) {
-          // 음절 시작/끝단의 자음 전이 구간(각 3%) 최소 트리밍
           const cut = Math.max(1, Math.floor(seg.length * 0.03));
           seg = seg.slice(cut, seg.length - cut);
 
-          // 4성 하강을 바닥 평조로 왜곡하지 않도록, 급격한 치솟음만 제한
           while (seg.length > 3) {
             const last = seg[seg.length - 1];
             const prev = seg[seg.length - 2];
@@ -1205,7 +1201,6 @@
             else break;
           }
 
-          // 이동 평균 스무딩
           for (let k = 1; k < seg.length - 1; k++) {
             if (Math.abs(seg[k] - seg[k - 1]) > 1.2 && Math.abs(seg[k] - seg[k + 1]) > 1.2) {
               seg[k] = (seg[k - 1] + seg[k + 1]) / 2;
@@ -1214,7 +1209,6 @@
 
           userSyllableCurves.push(resampleSegment(seg, 28));
         } else {
-          // 발화 데이터가 유실되었더라도 임의의 바닥 저평조가 아닌 가이드 기준 높이에 근접하도록 보정
           const guideFallback = allSentenceSyllables[s] && allSentenceSyllables[s].curvePoints 
             ? allSentenceSyllables[s].curvePoints[0] 
             : 3.0;
