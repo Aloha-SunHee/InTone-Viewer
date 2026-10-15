@@ -1119,7 +1119,7 @@
       alignAndNormalizeToChunks();
       lastAnalysis = {
         source: source || "live",
-        version: "v12",
+        version: "v13",
         sentence: currentSentence,
         savedAt: getNowFormattedString(),
         userAgent: navigator.userAgent,
@@ -1527,7 +1527,8 @@
     function gateBackgroundNoise(frames) {
       // ① 기계 소음(험) 제거: 3프레임 이상 이어지는 유성 구간 중, 음높이가 110Hz 미만이면서
       //    거의 변하지 않는(표준편차 0.2반음 미만) 구간은 사람 목소리가 아니므로 무음 처리 (예: 77Hz 팬·전원 소음)
-      const out = frames.map(f => ({ ...f }));
+      // ⓪ 100Hz 미만이면서 신뢰도가 낮은(0.5 미만) 피치는 목소리가 아니라 잡음(폰을 잡는 소리·숨소리 등)으로 처리
+      const out = frames.map(f => (f.pitch && f.pitch < 100 && (f.clarity || 0) < 0.5) ? { t: f.t, pitch: null, rms: f.rms * 0.3, clarity: 0 } : { ...f });
       for (let i = 0; i < out.length; ) {
         if (!out[i].pitch) { i++; continue; }
         let j = i; while (j < out.length && out[j].pitch) j++;
@@ -1603,7 +1604,7 @@
     // ===== 연음 전이 구간 제거 =====
     // 음절과 음절 사이에서 음높이가 다음 음절의 시작 높이로 옮겨 가는 짧은 구간(예: 2성+2성 사이의 하강)은
     // 어느 음절의 성조도 아니므로, 음절 앞·뒤 끝에서 '해당 성조의 진행 방향과 반대로 움직이는' 부분을 덜어 낸다.
-    // - 앞·뒤 각각 최대 35%까지만 제거 → 학습자가 성조 자체를 반대로 낸 경우(예: 2성을 내림조로)는 그대로 드러남
+    // - 앞·뒤 각각 최대 50%까지만 제거 (연음에서 성조 사이 하강이 길게 나타나는 경우 대응) → 학습자가 성조 자체를 반대로 낸 경우(예: 2성을 내림조로)는 그대로 드러남
     // - 반대 방향 이동 폭이 0.3도 미만이면(잡음 수준) 제거하지 않음
     // - 남은 부분이 실제로 그 성조 방향으로 0.3도 이상 움직일 때만 제거(성조 전체를 반대로 낸 오류는 보존)
     // - 템플릿 끝 방향이 뚜렷하지 않은 성조(1성, 반3성 끝)는 제거하지 않음 → 212처럼 낸 3성의 끝 상승도 그대로 표시
@@ -1615,7 +1616,7 @@
       let startDir = sgn(g[13] - g[0], 0.2);   // 앞 절반의 진행 방향 (2성처럼 초반이 완만해도 '상승'으로 판단)
       let endDir = sgn(g[27] - g[18], 0.15);
       const sm = tones.map((_, i) => median(tones.slice(Math.max(0, i - 2), i + 3)));
-      const maxTrim = Math.floor(n * 0.35);
+      const maxTrim = Math.floor(n * 0.5);
       let st = 0, en = n;
       if (startDir !== 0) {
         // 상승해야 할 성조면 앞 35% 안의 최저점, 하강해야 할 성조면 최고점까지를 전이로 보고 제거
