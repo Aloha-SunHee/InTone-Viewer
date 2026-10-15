@@ -1200,7 +1200,7 @@
         let minLen = Infinity, minIdx = -1;
         for (let i = 0; i < separatedSyllables.length; i++) {
           if (separatedSyllables[i].length < minLen) {
-            minLen = syllableSegments ? minLen : 0;
+            minLen = separatedSyllables[i].length;
             minIdx = i;
           }
         }
