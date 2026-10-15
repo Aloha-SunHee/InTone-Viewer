@@ -857,7 +857,7 @@
       const frames = [];
       for (let i = 0; i < rawData.length - windowSize; i += stepSize) {
         const res = detectPitchAndVolume(rawData.subarray(i, i + windowSize), sampleRate);
-        frames.push({ pitch: res.hasVoice ? res.pitch : null, rms: res.rms, t: (i / sampleRate) * 1000 });
+        frames.push({ pitch: res.hasVoice ? res.pitch : null, rms: res.rms, t: (i / sampleRate) * 1000, clarity: res.clarity || 0 });
       }
       const N = allSentenceSyllables.length;
       const sylTones = analyzeUtterance(frames, N, false);
@@ -954,7 +954,8 @@
       rawFrameStream.push({
         pitch: result.hasVoice ? result.pitch : null,
         rms: result.rms,
-        t: currentTime
+        t: currentTime,
+        clarity: result.clarity || 0
       });
 
       if (result.hasVoice) {
@@ -1064,10 +1065,18 @@
         if (c[i] > maxVal) { maxVal = c[i]; maxPos = i; }
       }
 
-      if (maxVal / c[0] < 0.25) return { hasVoice: false, pitch: 0, rms: rms };
-      const hz = sampleRate / maxPos;
+      const clarity = maxVal / c[0];
+      if (clarity < 0.25) return { hasVoice: false, pitch: 0, rms: rms, clarity: clarity };
+      // 포물선 보간으로 주기 추정 정밀도 향상(잔떨림 감소)
+      let period = maxPos;
+      if (maxPos > 0 && maxPos < len - 1) {
+        const x1 = c[maxPos - 1], x2 = c[maxPos], x3 = c[maxPos + 1];
+        const den = (x1 - 2 * x2 + x3);
+        if (den !== 0) period = maxPos + 0.5 * (x1 - x3) / den;
+      }
+      const hz = sampleRate / period;
       if (hz < 50 || hz > 480) return { hasVoice: false, pitch: 0, rms: rms };
-      return { hasVoice: true, pitch: hz, rms: rms };
+      return { hasVoice: true, pitch: hz, rms: rms, clarity: clarity };
     }
 
     // [1성 중심 5도 앵커링 정규화 알고리즘]
@@ -1092,7 +1101,9 @@
         const curSemi = 12 * Math.log2(hz);
         let norm = (curSemi - minSemi) / semitoneRange;
         // 1성 발화가 4.85도에 정확히 닿도록 정규화 범위를 1.2도 ~ 4.85도로 매핑
-        norm = Math.max(-0.03, Math.min(1.04, norm));
+        // 상·하한을 넘는 값은 잘라 내지 않고 부드럽게 압축(소프트 니) → 5도·1도에 평평하게 붙는 현상 방지
+        if (norm > 0.88) norm = 0.88 + 0.16 * (1 - Math.exp(-(norm - 0.88) / 0.16));
+        else if (norm < 0.06) norm = 0.06 - 0.1 * (1 - Math.exp(-(0.06 - norm) / 0.1));
         return 1.25 + norm * 3.60;
       });
     }
@@ -1272,9 +1283,51 @@
       return segs;
     }
 
+    // ===== 피치 궤적 정제 (PC 마이크처럼 잡음이 많은 입력 대비) =====
+    // ① 신뢰도(clarity)가 낮은 프레임(0.25~0.35)은 주변의 확실한 프레임과 3반음 이내로 이어질 때만 채택
+    //    → 폰에서 잡히던 3성 저음역·보컬프라이는 살리고, 잡음성 피치는 버림
+    // ② 국소 중앙값(±4 유성 프레임)과 비교해 약 한 옥타브(12±3반음) 차이 → 옥타브 오류로 보고 접어 넣음
+    //    그 밖에 6반음 이상 튀는 점 → 이상치로 제거
+    // ③ 3프레임 미만으로 고립된 유성 조각 제거
+    function cleanPitchTrack(frames) {
+      const n = frames.length;
+      let st = frames.map(f => (f.pitch && f.pitch > 0) ? 12 * Math.log2(f.pitch) : null);
+      const strong = frames.map((f, i) => st[i] !== null && (f.clarity === undefined || f.clarity >= 0.35));
+      // ①
+      st = st.map((v, i) => {
+        if (v === null || strong[i]) return v;
+        for (let k = Math.max(0, i - 3); k <= Math.min(n - 1, i + 3); k++) {
+          if (k !== i && strong[k] && Math.abs(st[k] - v) <= 3) return v;
+        }
+        return null;
+      });
+      // ②
+      const out = st.slice();
+      for (let i = 0; i < n; i++) {
+        if (st[i] === null) continue;
+        const neigh = [];
+        for (let k = i - 1, cnt = 0; k >= 0 && cnt < 4; k--) { if (st[k] === null) break; neigh.push(st[k]); cnt++; }
+        for (let k = i + 1, cnt = 0; k < n && cnt < 4; k++) { if (st[k] === null) break; neigh.push(st[k]); cnt++; }
+        if (neigh.length < 2) continue;
+        const m = median(neigh.concat([st[i]]));
+        const d = st[i] - m;
+        if (Math.abs(d - 12) < 3) out[i] = st[i] - 12;
+        else if (Math.abs(d + 12) < 3) out[i] = st[i] + 12;
+        else if (Math.abs(d) > 6) out[i] = null;
+      }
+      // ③
+      for (let i = 0; i < n; ) {
+        if (out[i] === null) { i++; continue; }
+        let j = i; while (j < n && out[j] !== null) j++;
+        if (j - i < 3) for (let k = i; k < j; k++) out[k] = null;
+        i = j;
+      }
+      return out.map(v => v === null ? null : Math.pow(2, v / 12));
+    }
+
     // 프레임 → (옥타브 보정 → 반음·화자 정규화 → 에너지 분절) → 음절별 5도 값 배열
     function analyzeUtterance(frames, N, applyTone1Boost) {
-      const hz = correctOctaveErrors(frames.map(f => f.pitch));
+      const hz = correctOctaveErrors(cleanPitchTrack(frames));
       const tonesAll = dynamicScaleHzArray(hz);
       const segs = segmentUtterance(frames, N, tonesAll);
       const out = [];
@@ -1300,17 +1353,23 @@
     }
 
     // 궤적 단순화: 5점 중앙값 필터(스파이크 제거) → 최대 8개 구간 평균을 제어점으로 → 28점
+    // 궤적 단순화: 5점 중앙값 필터 → 3점 이동평균 → 제어점 8개(양 끝은 가장자리 3점 중앙값으로 높이 보존, 내부는 구간 평균) → 28점
     function simplifySyllableToToneCurve(rawSeg) {
       if (!rawSeg || rawSeg.length === 0) return [];
       if (rawSeg.length <= 4) return resampleSegment(rawSeg, 28);
       const mf = rawSeg.map((_, i) => median(rawSeg.slice(Math.max(0, i - 2), i + 3)));
-      const nKey = Math.min(8, mf.length);
-      const key = [];
-      for (let p = 0; p < nKey; p++) {
-        const c = Math.round(p * (mf.length - 1) / (nKey - 1));
-        const sl = mf.slice(Math.max(0, c - 1), Math.min(mf.length, c + 2));
+      const sm = mf.map((_, i) => { const sl = mf.slice(Math.max(0, i - 1), i + 2); return sl.reduce((x, y) => x + y, 0) / sl.length; });
+      const nKey = Math.min(8, sm.length);
+      if (nKey < 3) return resampleSegment(sm, 28);
+      const key = [median(mf.slice(0, 3))];
+      const inner = nKey - 2;
+      for (let p = 0; p < inner; p++) {
+        const st = Math.floor(sm.length * (p + 0.5) / (inner + 1));
+        const en = Math.max(st + 1, Math.floor(sm.length * (p + 1.5) / (inner + 1)));
+        const sl = sm.slice(st, en);
         key.push(sl.reduce((x, y) => x + y, 0) / sl.length);
       }
+      key.push(median(mf.slice(-3)));
       return resampleSegment(key, 28);
     }
 
