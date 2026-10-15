@@ -462,6 +462,7 @@
         <button style="background:#f1f5f9; color:#64748b;" onclick="clearPracticeHistory()">초기화</button>
         <button style="background:#0284c7; color:white;" onclick="downloadReportTxt()">.txt 저장</button>
         <button style="background:#0f766e; color:white;" onclick="copyReportText()">전체 복사</button>
+        <button style="background:#f1f5f9; color:#475569;" onclick="downloadAnalysisData()" title="마지막 녹음의 분석 데이터(음성 파일 아님)">🔧 분석 데이터</button>
       </div>
     </div>
   </div>
@@ -1002,6 +1003,15 @@
       recBtnText.innerText = "녹음";
 
       alignAndNormalizeToChunks();
+      lastAnalysis = {
+        version: "v6",
+        sentence: currentSentence,
+        savedAt: getNowFormattedString(),
+        userAgent: navigator.userAgent,
+        syllables: allSentenceSyllables.map(s => ({ char: s.char, pinyin: s.pinyin, tone: s.tone, actualTone: s.actualTone, isDot: s.isDot, isParticle: s.isParticle, curvePoints: s.curvePoints, neutralPitch: s.neutralPitch })),
+        frames: rawFrameStream.map(f => [Math.round(f.t), f.pitch ? Math.round(f.pitch * 10) / 10 : null, Math.round(f.rms * 10000) / 10000, Math.round((f.clarity || 0) * 100) / 100]),
+        userCurves: userSyllableCurves
+      };
       drawCanvas();
       calculateSimilarityAndFeedback();
     }
@@ -1286,8 +1296,7 @@
     // ===== 피치 궤적 정제 (PC 마이크처럼 잡음이 많은 입력 대비) =====
     // ① 신뢰도(clarity)가 낮은 프레임(0.25~0.35)은 주변의 확실한 프레임과 3반음 이내로 이어질 때만 채택
     //    → 폰에서 잡히던 3성 저음역·보컬프라이는 살리고, 잡음성 피치는 버림
-    // ② 국소 중앙값(±4 유성 프레임)과 비교해 약 한 옥타브(12±3반음) 차이 → 옥타브 오류로 보고 접어 넣음
-    //    그 밖에 6반음 이상 튀는 점 → 이상치로 제거
+    // ② 옥타브 경로 추적(Viterbi)으로 짧은 오류와 길게 이어진 옥타브 오류를 모두 보정, 6반음 이상 튀는 점 제거
     // ③ 3프레임 미만으로 고립된 유성 조각 제거
     function cleanPitchTrack(frames) {
       const n = frames.length;
@@ -1301,19 +1310,50 @@
         }
         return null;
       });
-      // ②
+      // ② 옥타브 경로 추적(Viterbi): 각 프레임을 -12 / 0 / +12반음 중 하나로 보정하되,
+      //    프레임 간 도약이 가장 작고 발화 중앙값에서 크게 벗어나지 않는 경로를 고른다.
+      //    → 수십 ms 동안 '이어서' 2배(또는 1/2)로 잘못 읽힌 구간도 통째로 제자리로 돌아온다.
+      const vIdx = []; for (let i = 0; i < n; i++) if (st[i] !== null) vIdx.push(i);
       const out = st.slice();
+      if (vIdx.length >= 3) {
+        const med = median(vIdx.map(i => st[i]));
+        const SH = [-12, 0, 12];
+        const cost = [], back = [];
+        const stateCost = (v, k) => {
+          const x = v + SH[k];
+          if (x < med - 18 || x > med + 14) return 1e9;
+          return (SH[k] !== 0 ? 2.0 : 0) + 0.15 * Math.abs(x - med);
+        };
+        cost.push(SH.map((_, k) => stateCost(st[vIdx[0]], k)));
+        back.push([0, 1, 2]);
+        for (let t = 1; t < vIdx.length; t++) {
+          const v = st[vIdx[t]], vp = st[vIdx[t - 1]];
+          const gap = vIdx[t] - vIdx[t - 1];
+          const w = gap > 5 ? 0.3 : 1.0;
+          const row = [], br = [];
+          for (let k = 0; k < 3; k++) {
+            let best = Infinity, bk = 0;
+            for (let kp = 0; kp < 3; kp++) {
+              const c = cost[t - 1][kp] + w * Math.abs((v + SH[k]) - (vp + SH[kp]));
+              if (c < best) { best = c; bk = kp; }
+            }
+            row.push(best + stateCost(v, k)); br.push(bk);
+          }
+          cost.push(row); back.push(br);
+        }
+        let k = 0, bestC = Infinity;
+        for (let kk = 0; kk < 3; kk++) if (cost[vIdx.length - 1][kk] < bestC) { bestC = cost[vIdx.length - 1][kk]; k = kk; }
+        for (let t = vIdx.length - 1; t >= 0; t--) { out[vIdx[t]] = st[vIdx[t]] + SH[k]; k = back[t][k]; }
+      }
+      //    그 밖에 국소 중앙값(±4 유성 프레임)에서 6반음 이상 튀는 점은 이상치로 제거
+      const fixedSt = out.slice();
       for (let i = 0; i < n; i++) {
-        if (st[i] === null) continue;
+        if (fixedSt[i] === null) continue;
         const neigh = [];
-        for (let k = i - 1, cnt = 0; k >= 0 && cnt < 4; k--) { if (st[k] === null) break; neigh.push(st[k]); cnt++; }
-        for (let k = i + 1, cnt = 0; k < n && cnt < 4; k++) { if (st[k] === null) break; neigh.push(st[k]); cnt++; }
+        for (let k2 = i - 1, cnt = 0; k2 >= 0 && cnt < 4; k2--) { if (fixedSt[k2] === null) break; neigh.push(fixedSt[k2]); cnt++; }
+        for (let k2 = i + 1, cnt = 0; k2 < n && cnt < 4; k2++) { if (fixedSt[k2] === null) break; neigh.push(fixedSt[k2]); cnt++; }
         if (neigh.length < 2) continue;
-        const m = median(neigh.concat([st[i]]));
-        const d = st[i] - m;
-        if (Math.abs(d - 12) < 3) out[i] = st[i] - 12;
-        else if (Math.abs(d + 12) < 3) out[i] = st[i] + 12;
-        else if (Math.abs(d) > 6) out[i] = null;
+        if (Math.abs(fixedSt[i] - median(neigh.concat([fixedSt[i]]))) > 6) out[i] = null;
       }
       // ③
       for (let i = 0; i < n; ) {
@@ -1326,7 +1366,18 @@
     }
 
     // 프레임 → (옥타브 보정 → 반음·화자 정규화 → 에너지 분절) → 음절별 5도 값 배열
+    // 배경 소음 제거: 그 녹음에서 실제 목소리 크기(유성 프레임 음량의 95백분위)의 15%보다 작은 프레임은 무음으로 간주
+    // → 말하기 전·후의 팬/전원 소음(예: 일정한 77Hz)이 첫 음절로 잡히거나 음역 바닥을 끌어내리는 것을 막음
+    function gateBackgroundNoise(frames) {
+      const voicedRms = frames.filter(f => f.pitch && f.rms >= SEG.SIL_RMS).map(f => f.rms).sort((x, y) => x - y);
+      if (voicedRms.length < 5) return frames;
+      const p95 = voicedRms[Math.floor(voicedRms.length * 0.95)];
+      const thr = Math.max(SEG.SIL_RMS, p95 * 0.15);
+      return frames.map(f => f.rms < thr ? { t: f.t, pitch: null, rms: 0, clarity: 0 } : f);
+    }
+
     function analyzeUtterance(frames, N, applyTone1Boost) {
+      frames = gateBackgroundNoise(frames);
       const hz = correctOctaveErrors(cleanPitchTrack(frames));
       const tonesAll = dynamicScaleHzArray(hz);
       const segs = segmentUtterance(frames, N, tonesAll);
@@ -1340,6 +1391,7 @@
         const cut = Math.floor(tones.length * 0.04);
         if (tones.length - 2 * cut >= 3) tones = tones.slice(cut, tones.length - cut);
         const targetSyl = allSentenceSyllables[s];
+        if (targetSyl && !targetSyl.isDot && targetSyl.curvePoints) tones = trimTransitions(tones, targetSyl.curvePoints);
         if (applyTone1Boost && targetSyl && targetSyl.actualTone === 1) {
           const avgVal = tones.reduce((x, y) => x + y, 0) / tones.length;
           if (avgVal < 4.80) {
@@ -1352,7 +1404,39 @@
       return out;
     }
 
-    // 궤적 단순화: 5점 중앙값 필터(스파이크 제거) → 최대 8개 구간 평균을 제어점으로 → 28점
+    // ===== 연음 전이 구간 제거 =====
+    // 음절과 음절 사이에서 음높이가 다음 음절의 시작 높이로 옮겨 가는 짧은 구간(예: 2성+2성 사이의 하강)은
+    // 어느 음절의 성조도 아니므로, 음절 앞·뒤 끝에서 '해당 성조의 진행 방향과 반대로 움직이는' 부분을 덜어 낸다.
+    // - 앞·뒤 각각 최대 35%까지만 제거 → 학습자가 성조 자체를 반대로 낸 경우(예: 2성을 내림조로)는 그대로 드러남
+    // - 반대 방향 이동 폭이 0.3도 미만이면(잡음 수준) 제거하지 않음
+    // - 남은 부분이 실제로 그 성조 방향으로 0.3도 이상 움직일 때만 제거(성조 전체를 반대로 낸 오류는 보존)
+    // - 템플릿 끝 방향이 뚜렷하지 않은 성조(1성, 반3성 끝)는 제거하지 않음 → 212처럼 낸 3성의 끝 상승도 그대로 표시
+    function trimTransitions(tones, template) {
+      const n = tones.length;
+      if (n < 8) return tones;
+      const g = resampleSegment(template, 28);
+      const sgn = (v, th) => v > th ? 1 : (v < -th ? -1 : 0);
+      let startDir = sgn(g[13] - g[0], 0.2);   // 앞 절반의 진행 방향 (2성처럼 초반이 완만해도 '상승'으로 판단)
+      let endDir = sgn(g[27] - g[18], 0.15);
+      const sm = tones.map((_, i) => median(tones.slice(Math.max(0, i - 2), i + 3)));
+      const maxTrim = Math.floor(n * 0.35);
+      let st = 0, en = n;
+      if (startDir !== 0) {
+        // 상승해야 할 성조면 앞 35% 안의 최저점, 하강해야 할 성조면 최고점까지를 전이로 보고 제거
+        let k = 0;
+        for (let i = 1; i <= maxTrim; i++) if ((sm[i] - sm[k]) * startDir < 0) k = i;
+        let gain = 0; for (let i = k; i < n; i++) gain = Math.max(gain, (sm[i] - sm[k]) * startDir);
+        if (k > 0 && Math.abs(sm[0] - sm[k]) >= 0.3 && gain >= 0.3) st = k;
+      }
+      if (endDir !== 0) {
+        let k = n - 1;
+        for (let j = n - 2; j >= n - 1 - maxTrim; j--) if ((sm[j] - sm[k]) * endDir > 0) k = j;
+        let gain = 0; for (let j = st; j <= k; j++) gain = Math.max(gain, (sm[k] - sm[j]) * endDir);
+        if (k < n - 1 && Math.abs(sm[n - 1] - sm[k]) >= 0.3 && gain >= 0.3) en = k + 1;
+      }
+      return (en - st >= 4) ? tones.slice(st, en) : tones;
+    }
+
     // 궤적 단순화: 5점 중앙값 필터 → 3점 이동평균 → 제어점 8개(양 끝은 가장자리 3점 중앙값으로 높이 보존, 내부는 구간 평균) → 28점
     function simplifySyllableToToneCurve(rawSeg) {
       if (!rawSeg || rawSeg.length === 0) return [];
@@ -1520,6 +1604,18 @@
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = `InToneViewer_Report_${getNowFormattedString().slice(0, 10)}.txt`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    // 마지막 녹음의 분석 데이터(프레임별 시각·피치·음량·신뢰도)를 JSON으로 저장 — 음성 자체는 포함하지 않음
+    let lastAnalysis = null;
+    function downloadAnalysisData() {
+      if (!lastAnalysis) { alert("먼저 녹음을 한 번 해 주세요."); return; }
+      const blob = new Blob([JSON.stringify(lastAnalysis)], { type: "application/json" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `InTone_analysis_${lastAnalysis.savedAt.replace(/[: ]/g, "-")}.json`;
       link.click();
       URL.revokeObjectURL(link.href);
     }
