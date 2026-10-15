@@ -929,6 +929,7 @@
       }
       clearPlaybackAudio();
       hideFeedback();
+      try { speechSynthesis.cancel(); } catch (e) {}
 
       try {
         // iPad/iOS 사파리는 사용자의 탭 '안에서' 오디오를 켜야 함 → await 이전에 동기적으로 생성·재개
@@ -958,6 +959,7 @@
         userSyllableCurves = [];
 
         peakRms = 0;
+        liveSilent = false;
         recBtn.classList.add("recording");
         // 마이크가 실제로 켜진 뒤에 '말하세요'를 보여 줌 (첫 음절이 잘리지 않도록)
         recBtnText.innerText = "말하세요";
@@ -1012,6 +1014,7 @@
     document.addEventListener("visibilitychange", () => { if (document.hidden) releaseMic(); });
 
     let peakRms = 0;
+    let liveSilent = false;
     function sampleLoop() {
       if (!isRecording) return;
       const buffer = new Float32Array(analyser.fftSize);
@@ -1028,21 +1031,13 @@
 
       peakRms = Math.max(peakRms, result.rms);
       // 2초가 지나도 마이크 입력이 사실상 0이면 중단하고 안내 (예: 기기 오디오가 켜지지 않은 경우)
-      if (rawFrameStream.length > 2 && currentTime - rawFrameStream[0].t > 2000 && peakRms < 0.0005) {
-        isRecording = false;
-        cancelAnimationFrame(animLoopId);
-        if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
-        recBtn.classList.remove("recording");
-        recBtnText.innerText = "녹음";
-        if (!altAudioOrder) {
-          altAudioOrder = true;
-          releaseMic();
-          alert("마이크 연결 방식을 바꿨습니다. 녹음 버튼을 한 번 더 눌러 주세요.");
-        } else {
-          alert("마이크 소리가 들어오지 않습니다. 화면을 새로 고친 뒤 다시 녹음해 보세요. (iPad/iPhone은 설정 > Safari > 마이크 허용 확인)");
-        }
-        return;
+      // 실시간 분석에 소리가 전혀 안 들어오는 경우(일부 iPad: 가이드 음성 재생 후 등) → 녹음은 계속하고,
+      // 끝난 뒤 녹음 파일 자체를 분석한다. 자동 종료가 불가능하므로 정지 버튼(최대 8초)으로 끝냄.
+      if (!liveSilent && rawFrameStream.length > 2 && currentTime - rawFrameStream[0].t > 1500 && peakRms < 0.0005) {
+        liveSilent = true;
+        recBtnText.innerText = "말한 뒤 정지";
       }
+      if (liveSilent && currentTime - rawFrameStream[0].t > 8000) { finishAndAlign(); return; }
       const speaking = result.hasVoice && result.rms >= Math.max(0.012, peakRms * 0.08);
       if (speaking) {
         hasSpeechStarted = true;
@@ -1077,17 +1072,54 @@
             playBtnText.innerText = "재생";
           };
           playBtn.disabled = false;
+          if (liveSilent) analyzeRecordedBlob(audioBlob);
         };
         mediaRecorder.stop();
+      }
+      if (liveSilent) {
+        recBtn.classList.remove("recording");
+        recBtnText.innerText = "녹음";
+        feedbackBanner.style.display = "flex";
+        feedbackBanner.className = "feedback-banner badge-good";
+        feedbackBanner.innerText = "분석 중…";
+        return;
       }
 
 
       recBtn.classList.remove("recording");
       recBtnText.innerText = "녹음";
 
+      runAnalysisAndShow();
+    }
+
+    // 녹음 파일(blob)을 디코딩해 프레임 단위로 분석 (업로드 음원과 같은 방식)
+    async function analyzeRecordedBlob(blob) {
+      try {
+        const buf = await blob.arrayBuffer();
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const audioBuffer = await ctx.decodeAudioData(buf);
+        ctx.close();
+        const data = audioBuffer.getChannelData(0), sr = audioBuffer.sampleRate;
+        const win = 2048, hop = Math.round(sr / 60);
+        const frames = [];
+        for (let i = 0; i + win < data.length; i += hop) {
+          const r = detectPitchAndVolume(data.subarray(i, i + win), sr);
+          frames.push({ pitch: r.hasVoice ? r.pitch : null, rms: r.rms, t: (i / sr) * 1000, clarity: r.clarity || 0 });
+        }
+        rawFrameStream = frames;
+        hideFeedback();
+        runAnalysisAndShow("file");
+      } catch (e) {
+        hideFeedback();
+        alert("녹음 파일을 분석하지 못했습니다. 화면을 새로 고친 뒤 다시 시도해 주세요.");
+      }
+    }
+
+    function runAnalysisAndShow(source) {
       alignAndNormalizeToChunks();
       lastAnalysis = {
-        version: "v11",
+        source: source || "live",
+        version: "v12",
         sentence: currentSentence,
         savedAt: getNowFormattedString(),
         userAgent: navigator.userAgent,
@@ -1309,6 +1341,11 @@
         // 앞이나 뒤에서 '뚜렷하게'(0.3도 이상) 반대 방향으로 움직인 경우만 재설정으로 인정
         // (2성이 살짝 내려갔다가 가파르게 오르는 것은 한 음절 안의 움직임이므로 제외)
         if (!((jump * before < 0 && Math.abs(before) >= 0.3) || (jump * after < 0 && Math.abs(after) >= 0.3))) continue;
+        // 근처 150ms 안에 자음·무음이 있으면 그 자음이 경계 → 2성 시작부의 '살짝 내려갔다 오르기'를 경계로 오인하지 않음
+        let consNearJ = false;
+        const nearJ = nf(150);
+        for (let k = Math.max(0, i - nearJ); k <= Math.min(L - 1, i + nearJ); k++) if (!VO[k]) { consNearJ = true; break; }
+        if (consNearJ) continue;
         const J = Math.abs(jump);
         const jumpCost = 1 - Math.min(1, J / 1.2);
         if (jumpCost < Bc[i]) Bc[i] = jumpCost;
@@ -1525,8 +1562,7 @@
     function analyzeUtterance(frames, N, applyTone1Boost) {
       frames = gateBackgroundNoise(frames);
       const hz = correctOctaveErrors(cleanPitchTrack(frames));
-      const tonesSeg = dynamicScaleHzArray(hz);            // 음절 경계 탐색용
-      const segs = segmentUtterance(frames, N, tonesSeg);
+      const tonesSeg = dynamicScaleHzArray(hz);
       // 화면 표시용: 반음 값을 화자 음역(3~97백분위, 최소 6반음)이 약 4.4도에 해당하도록 환산
       // → 가장 높은 음절(예: 4성 是)도 위아래가 잘리거나 눌리지 않고 실제 기울기대로 표시됨
       const stAll = hz.map(h => (h && h > 0) ? 12 * Math.log2(h) : null);
@@ -1538,6 +1574,9 @@
         const stPerLevel = Math.max(6, hi - lo) / 4.4;
         tonesAll = stAll.map(v => v === null ? null : 1 + (v - lo) / stPerLevel);
       }
+      // 음절 경계 탐색에도 같은 반음 기준 값을 사용 (예전 5도 고정 환산은 是처럼 높은 음절의 윗부분을 잘라 평평하게 만들어
+      // '하강하는 4성'으로 인식되지 못하고 경계가 엉뚱한 곳에 잡히는 원인이 됐음)
+      const segs = segmentUtterance(frames, N, tonesAll);
       const out = [];
       for (let s = 0; s < N; s++) {
         const seg = segs[s];
