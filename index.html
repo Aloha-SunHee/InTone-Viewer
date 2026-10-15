@@ -910,7 +910,12 @@
       hideFeedback();
 
       try {
-        const firstOpen = !(micStream && micStream.active && audioCtx && audioCtx.state !== "closed");
+        // iPad/iOS 사파리는 사용자의 탭 '안에서' 오디오를 켜야 함 → await 이전에 동기적으로 생성·재개
+        // 기본: 탭(사용자 동작) 안에서 오디오 엔진을 먼저 만든다(iOS 자동재생 정책).
+        // 무음이 감지된 뒤의 재시도(altAudioOrder)에서는 마이크를 먼저 연 뒤 오디오 엔진을 만든다(일부 iPad 사파리 대응).
+        if (!altAudioOrder && (!audioCtx || audioCtx.state === "closed")) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); micSource = null; }
+        if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+        const firstOpen = !(micStream && micStream.active && micSource);
         if (firstOpen) recBtnText.innerText = "준비…";
         await ensureMic();
 
@@ -947,23 +952,25 @@
     // 마이크는 한 번 열면 페이지를 떠날 때까지 유지 → 두 번째 녹음부터는 켜지는 지연이 없음
     // 브라우저의 잡음 제거·자동 음량·에코 제거는 끔: 잡음 제거가 약한 음절(3성 저음역 등)을 통째로 지우는 문제 방지
     let micSource = null;
+    let altAudioOrder = false;
     async function ensureMic() {
-      if (micStream && micStream.active && audioCtx && audioCtx.state !== "closed") {
-        if (audioCtx.state === "suspended") await audioCtx.resume();
-        return;
+      if (!micStream || !micStream.active) {
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+          });
+        } catch (e) {
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+        micSource = null;
       }
-      try {
-        micStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
-        });
-      } catch (e) {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!audioCtx || audioCtx.state === "closed") { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); micSource = null; }
+      if (!micSource) {
+        micSource = audioCtx.createMediaStreamSource(micStream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        micSource.connect(analyser);
       }
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      micSource = audioCtx.createMediaStreamSource(micStream);
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      micSource.connect(analyser);
       if (audioCtx.state === "suspended") await audioCtx.resume();
     }
     function releaseMic() {
@@ -990,6 +997,22 @@
       });
 
       peakRms = Math.max(peakRms, result.rms);
+      // 2초가 지나도 마이크 입력이 사실상 0이면 중단하고 안내 (예: 기기 오디오가 켜지지 않은 경우)
+      if (rawFrameStream.length > 2 && currentTime - rawFrameStream[0].t > 2000 && peakRms < 0.0005) {
+        isRecording = false;
+        cancelAnimationFrame(animLoopId);
+        if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+        recBtn.classList.remove("recording");
+        recBtnText.innerText = "녹음";
+        if (!altAudioOrder) {
+          altAudioOrder = true;
+          releaseMic();
+          alert("마이크 연결 방식을 바꿨습니다. 녹음 버튼을 한 번 더 눌러 주세요.");
+        } else {
+          alert("마이크 소리가 들어오지 않습니다. 화면을 새로 고친 뒤 다시 녹음해 보세요. (iPad/iPhone은 설정 > Safari > 마이크 허용 확인)");
+        }
+        return;
+      }
       const speaking = result.hasVoice && result.rms >= Math.max(0.012, peakRms * 0.08);
       if (speaking) {
         hasSpeechStarted = true;
@@ -1034,7 +1057,7 @@
 
       alignAndNormalizeToChunks();
       lastAnalysis = {
-        version: "v8",
+        version: "v10",
         sentence: currentSentence,
         savedAt: getNowFormattedString(),
         userAgent: navigator.userAgent,
@@ -1253,10 +1276,46 @@
         // 앞뒤 곡선과 반대 방향으로 튀는 점프만 '재설정'으로 인정 (4성의 가파른 하강 자체는 제외)
         const before = (i - 3 * jw >= 0) ? T[i - jw] - T[i - 3 * jw] : 0;
         const after = (i + 3 * jw - 1 < L) ? T[i + 3 * jw - 1] - T[i + jw - 1] : 0;
-        if (!(jump * before < 0 || jump * after < 0)) continue;
+        // 앞이나 뒤에서 '뚜렷하게'(0.3도 이상) 반대 방향으로 움직인 경우만 재설정으로 인정
+        // (2성이 살짝 내려갔다가 가파르게 오르는 것은 한 음절 안의 움직임이므로 제외)
+        if (!((jump * before < 0 && Math.abs(before) >= 0.3) || (jump * after < 0 && Math.abs(after) >= 0.3))) continue;
         const J = Math.abs(jump);
         const jumpCost = 1 - Math.min(1, J / 1.2);
         if (jumpCost < Bc[i]) Bc[i] = jumpCost;
+      }
+
+      // 추가 경계 단서 ①: 모음 사이의 무성 자음(ㅎ·sh·g 등) — 앞뒤 150ms 안에 모음이 있는 무성·유음량 프레임
+      const near = nf(150);
+      for (let i = 0; i < L; i++) {
+        if (SIL[i] || VO[i]) continue;
+        let lv = false, rv = false;
+        for (let k = Math.max(0, i - near); k < i; k++) if (VO[k]) { lv = true; break; }
+        for (let k = i + 1; k <= Math.min(L - 1, i + near); k++) if (VO[k]) { rv = true; break; }
+        if (lv && rv) Bc[i] = Math.min(Bc[i], 0.15);
+      }
+      // 추가 경계 단서 ②: 음높이의 골·봉우리(연음에서 앞 음절 성조가 끝나고 다음 성조가 시작되는 점)
+      //   앞뒤 200ms 안에서 양쪽으로 0.5도 이상 오르내리는 국소 최저점/최고점
+      const tw = nf(200), lw = Math.max(1, nf(60));
+      for (let i = 0; i < L; i++) {
+        if (T[i] === null) continue;
+        let isMin = true, isMax = true;
+        for (let k = Math.max(0, i - lw); k <= Math.min(L - 1, i + lw); k++) {
+          if (T[k] === null || k === i) continue;
+          if (T[k] < T[i]) isMin = false;
+          if (T[k] > T[i]) isMax = false;
+        }
+        if (!isMin && !isMax) continue;
+        let lMax = -Infinity, lMin = Infinity, rMax = -Infinity, rMin = Infinity;
+        for (let k = i - 1; k >= Math.max(0, i - tw); k--) { if (T[k] === null) break; lMax = Math.max(lMax, T[k]); lMin = Math.min(lMin, T[k]); }
+        for (let k = i + 1; k <= Math.min(L - 1, i + tw); k++) { if (T[k] === null) break; rMax = Math.max(rMax, T[k]); rMin = Math.min(rMin, T[k]); }
+        // 음높이 골·마루를 경계 후보로 쓰는 것은 자음 없이 모음이 이어지는 연음 구간에서만.
+        // 주변 150ms 안에 무성 자음·무음 구간이 있으면 그 자음 구간이 진짜 경계이므로 적용하지 않음
+        // (2성 시작부의 작은 골이 경계로 오인되어 韩의 앞부분이 是에 붙던 문제 방지)
+        let consonantNear = false;
+        for (let k = Math.max(0, i - near); k <= Math.min(L - 1, i + near); k++) if (!VO[k]) { consonantNear = true; break; }
+        if (consonantNear) continue;
+        if (isMin && lMax - T[i] >= 0.5 && rMax - T[i] >= 0.5) Bc[i] = Math.min(Bc[i], 0.15);
+        if (isMax && T[i] - lMin >= 0.5 && T[i] - rMin >= 0.5) Bc[i] = Math.min(Bc[i], 0.15);
       }
 
       // 가이드 템플릿(평균 제거, K점)과 기대 길이
@@ -1436,8 +1495,19 @@
     function analyzeUtterance(frames, N, applyTone1Boost) {
       frames = gateBackgroundNoise(frames);
       const hz = correctOctaveErrors(cleanPitchTrack(frames));
-      const tonesAll = dynamicScaleHzArray(hz);
-      const segs = segmentUtterance(frames, N, tonesAll);
+      const tonesSeg = dynamicScaleHzArray(hz);            // 음절 경계 탐색용
+      const segs = segmentUtterance(frames, N, tonesSeg);
+      // 화면 표시용: 반음 값을 화자 음역(3~97백분위, 최소 6반음)이 약 4.4도에 해당하도록 환산
+      // → 가장 높은 음절(예: 4성 是)도 위아래가 잘리거나 눌리지 않고 실제 기울기대로 표시됨
+      const stAll = hz.map(h => (h && h > 0) ? 12 * Math.log2(h) : null);
+      const stValid = stAll.filter(v => v !== null).sort((x, y) => x - y);
+      let tonesAll = tonesSeg;
+      if (stValid.length >= 5) {
+        const lo = stValid[Math.floor(stValid.length * 0.03)];
+        const hi = stValid[Math.min(stValid.length - 1, Math.floor(stValid.length * 0.97))];
+        const stPerLevel = Math.max(6, hi - lo) / 4.4;
+        tonesAll = stAll.map(v => v === null ? null : 1 + (v - lo) / stPerLevel);
+      }
       const out = [];
       for (let s = 0; s < N; s++) {
         const seg = segs[s];
@@ -1483,13 +1553,13 @@
         let k = 0;
         for (let i = 1; i <= maxTrim; i++) if ((sm[i] - sm[k]) * startDir < 0) k = i;
         let gain = 0; for (let i = k; i < n; i++) gain = Math.max(gain, (sm[i] - sm[k]) * startDir);
-        if (k > 0 && Math.abs(sm[0] - sm[k]) >= 0.3 && gain >= 0.3) st = k;
+        if (k > 0 && Math.abs(sm[0] - sm[k]) >= 0.12 && gain >= 0.3) st = k;
       }
       if (endDir !== 0) {
         let k = n - 1;
         for (let j = n - 2; j >= n - 1 - maxTrim; j--) if ((sm[j] - sm[k]) * endDir > 0) k = j;
         let gain = 0; for (let j = st; j <= k; j++) gain = Math.max(gain, (sm[k] - sm[j]) * endDir);
-        if (k < n - 1 && Math.abs(sm[n - 1] - sm[k]) >= 0.3 && gain >= 0.3) en = k + 1;
+        if (k < n - 1 && Math.abs(sm[n - 1] - sm[k]) >= 0.12 && gain >= 0.3) en = k + 1;
       }
       return (en - st >= 4) ? tones.slice(st, en) : tones;
     }
@@ -1518,8 +1588,22 @@
       const N = allSentenceSyllables.length;
       userSyllableCurves = [];
       if (N === 0 || rawFrameStream.length === 0) return;
-      const sylTones = analyzeUtterance(rawFrameStream, N, true);
-      userSyllableCurves = sylTones.map(t => t.length ? simplifySyllableToToneCurve(t) : []);
+      const sylTones = analyzeUtterance(rawFrameStream, N, false);
+      const curves = sylTones.map(t => t.length ? simplifySyllableToToneCurve(t) : []);
+      // 운율 곡선은 '궤적의 모양과 기울기'를 대조하는 것이므로, 음절마다 학습자 곡선의 평균 높이를 가이드의 평균 높이에 맞춘다.
+      // (실제 발화는 문장 끝으로 갈수록 억양이 내려가 같은 성조라도 음역이 낮아지므로, 절대 높이를 1:1로 비교하지 않음)
+      let lastShift = 0;
+      userSyllableCurves = curves.map((c, idx) => {
+        if (!c.length) return c;
+        const g = allSentenceSyllables[idx];
+        const uMean = c.reduce((a, b) => a + b, 0) / c.length;
+        let target;
+        if (g.isDot) target = uMean + lastShift;               // 경성 점: 앞 음절과 같은 만큼 옮겨 상대 높이 유지
+        else target = g.curvePoints.reduce((a, b) => a + b, 0) / g.curvePoints.length;
+        const shift = target - uMean;
+        if (!g.isDot) lastShift = shift;
+        return c.map(v => Math.max(0.9, Math.min(5.1, v + shift)));
+      });
     }
 
     function resampleSegment(arr, targetLen) {
@@ -1539,6 +1623,14 @@
     }
 
     function calculateSimilarityAndFeedback() {
+      // 곡선이 하나도 없으면(소리가 잡히지 않음) 평가·기록을 남기지 않고 안내만 표시
+      if (!userSyllableCurves || !userSyllableCurves.some(c => c && c.length)) {
+        if (peakRms < 0.003 && !altAudioOrder) { altAudioOrder = true; releaseMic(); }
+        feedbackBanner.style.display = "flex";
+        feedbackBanner.className = "feedback-banner badge-try";
+        feedbackBanner.innerText = "소리가 잡히지 않았어요 — 다시 눌러 말해 보세요";
+        return;
+      }
       if (!userSyllableCurves || userSyllableCurves.length === 0 || allSentenceSyllables.length === 0) {
         displayFeedbackBadge(10);
         return;
