@@ -887,14 +887,35 @@
           gBtn.innerText = "■ 중지";
         }
       } else {
-        const speakText = activeChunks.map(c => c.hanzi).join(" ");
+        const speakText = (currentSentence || activeChunks.map(c => c.hanzi).join("")).replace(/\s+/g, "");
         if (!speakText) return;
         const utter = new SpeechSynthesisUtterance(speakText);
         utter.lang = "zh-CN";
         utter.rate = 0.85;
+        const zhVoice = pickChineseVoice();
+        if (zhVoice) utter.voice = zhVoice;
+        else if (speechSynthesis.getVoices().length > 0) {
+          alert("이 기기에 중국어 음성이 없어 다른 언어로 읽힐 수 있습니다.\n\n[iPad/iPhone] 설정 > 손쉬운 사용 > 읽기 및 말하기 > 음성 > 중국어(중국 본토)에서 음성을 내려받아 주세요.");
+        }
         speechSynthesis.cancel();
         speechSynthesis.speak(utter);
       }
+    }
+
+    // 중국어(보통화) 목소리를 직접 고른다. lang만 지정하면 iPad 등에서 기본(한국어) 목소리로 한자를 읽는 문제가 있음
+    function pickChineseVoice() {
+      const voices = speechSynthesis.getVoices() || [];
+      const norm = v => (v.lang || "").replace("_", "-").toLowerCase();
+      return voices.find(v => norm(v) === "zh-cn")
+        || voices.find(v => norm(v).startsWith("zh-cn"))
+        || voices.find(v => norm(v).startsWith("cmn"))
+        || voices.find(v => norm(v) === "zh-tw" || norm(v) === "zh-hk" ? false : norm(v).startsWith("zh"))
+        || voices.find(v => norm(v).startsWith("zh"))
+        || null;
+    }
+    if (typeof speechSynthesis !== "undefined" && speechSynthesis.getVoices) {
+      speechSynthesis.getVoices();
+      if ("onvoiceschanged" in speechSynthesis) speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
     }
 
     async function toggleRecord() {
@@ -952,15 +973,24 @@
     // 마이크는 한 번 열면 페이지를 떠날 때까지 유지 → 두 번째 녹음부터는 켜지는 지연이 없음
     // 브라우저의 잡음 제거·자동 음량·에코 제거는 끔: 잡음 제거가 약한 음절(3성 저음역 등)을 통째로 지우는 문제 방지
     let micSource = null;
-    let altAudioOrder = false;
+    // iPhone·iPad(iPadOS는 'Macintosh'+터치로 표시됨) 판별
+    const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+    // iOS: v7까지 잘 되던 방식(마이크를 먼저 연 뒤 오디오 엔진 생성)을 기본으로 사용
+    let altAudioOrder = IS_IOS;
     async function ensureMic() {
       if (!micStream || !micStream.active) {
-        try {
-          micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
-          });
-        } catch (e) {
+        // PC: 브라우저 잡음 제거가 약한 음절을 지우는 문제가 있어 음성 자동 처리를 끔
+        // iOS(iPhone·iPad): 자동 음량 조절을 끄면 입력이 매우 작아져(아이패드는 거의 무음) 기본 설정 사용
+        if (IS_IOS) {
           micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } else {
+          try {
+            micStream = await navigator.mediaDevices.getUserMedia({
+              audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+            });
+          } catch (e) {
+            micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          }
         }
         micSource = null;
       }
@@ -1057,7 +1087,7 @@
 
       alignAndNormalizeToChunks();
       lastAnalysis = {
-        version: "v10",
+        version: "v11",
         sentence: currentSentence,
         savedAt: getNowFormattedString(),
         userAgent: navigator.userAgent,
