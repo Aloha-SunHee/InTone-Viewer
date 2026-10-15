@@ -23,10 +23,9 @@
     }
 
     .app-viewport {
-      width: 100vw;
-      height: 100vh;
-      height: 100dvh;
-      max-width: 1020px;
+      width: min(100vw, 1020px);
+      height: min(100vh, calc(min(100vw, 1020px) * 9 / 16));
+      height: min(100dvh, calc(min(100vw, 1020px) * 9 / 16));
       background: #ffffff;
       display: flex;
       flex-direction: column;
@@ -1065,9 +1064,9 @@
         if (c[i] > maxVal) { maxVal = c[i]; maxPos = i; }
       }
 
-      if (maxVal / c[0] < 0.35) return { hasVoice: false, pitch: 0, rms: rms };
+      if (maxVal / c[0] < 0.25) return { hasVoice: false, pitch: 0, rms: rms };
       const hz = sampleRate / maxPos;
-      if (hz < 65 || hz > 480) return { hasVoice: false, pitch: 0, rms: rms };
+      if (hz < 50 || hz > 480) return { hasVoice: false, pitch: 0, rms: rms };
       return { hasVoice: true, pitch: hz, rms: rms };
     }
 
@@ -1123,7 +1122,7 @@
         if (v === null) return null;
         let x = v;
         if (x - med > 9) x -= 12;
-        else if (med - x > 10) x += 12;
+        else if (med - x > 15) x += 12;
         return Math.pow(2, x / 12);
       });
     }
@@ -1134,82 +1133,142 @@
     //    - BRIDGE_MS 이하의 미세 갭은 강제 경계가 아니라 다른 골짜기와 돌출도로 경쟁(브리징)
     //    - 그보다 긴 휴지는 최우선 경계
     // ③ 돌출도 순으로 N-1개 경계를 고르되 최소 간격(MIN_SYL_MS)을 지킴
-    function segmentUtterance(frames, N) {
+    // ===== 음절 분절: 에너지 + 성조 템플릿 기반 동적계획법(DP) 정렬 =====
+    // 연음(韩国人처럼 음절 사이에 무음이 없는 경우)에서는 에너지 골짜기가 약해 경계를 잘못 잡는다.
+    // 그래서 N개 음절에 대한 모든 경계 조합 중에서 아래 비용의 합이 최소가 되는 분할을 찾는다.
+    //   ① 모양 비용: 구간의 학습자 곡선(평균 제거)과 해당 음절 가이드 템플릿(평균 제거)의 차이
+    //      → 2성+2성+2성이면 각 구간이 '상승'이 되도록 경계가 음높이 재설정 지점(골)에 놓인다
+    //   ② 길이 비용: 기대 길이(조사는 35%)에서 크게 벗어나면 벌점
+    //   ③ 경계 비용: 무음·무성 자음·에너지 골짜기 위의 경계는 싸고, 모음 한가운데는 비쌈
+    //   ④ 구간 내부에 긴 휴지가 있으면 큰 벌점
+    // 높이(절대 음높이)는 비용에 넣지 않으므로 학습자의 음높이 오류는 그대로 화면에 드러난다.
+    function segmentUtterance(frames, N, tonesAll) {
       if (!frames.length || N <= 0) return [];
       const dts = [];
       for (let i = 1; i < frames.length; i++) { const d = frames[i].t - frames[i - 1].t; if (d > 0) dts.push(d); }
-      const dt = median(dts) || 16.7;
-      const nf = ms => Math.max(1, Math.round(ms / dt));
+      const dt0 = median(dts) || 16.7;
 
       let a = -1, b = -1;
       for (let i = 0; i < frames.length; i++) if (frames[i].rms >= SEG.SIL_RMS) { if (a < 0) a = i; b = i; }
       if (a < 0) return [];
-      b = b + 1; // exclusive
-      const L = b - a;
+      b = b + 1;
       if (N === 1) return [[a, b]];
 
-      const raw = [];
-      for (let i = a; i < b; i++) {
-        const fr = frames[i];
-        raw.push(fr.rms < SEG.SIL_RMS ? 0 : (fr.pitch ? fr.rms : fr.rms * 0.4));
+      // 계산량 제한: 최대 240프레임으로 축약
+      const step = Math.max(1, Math.ceil((b - a) / 240));
+      const dt = dt0 * step;
+      const nf = ms => Math.max(1, Math.round(ms / dt));
+      const E = [], T = [], SIL = [], VO = [];
+      for (let i = a; i < b; i += step) {
+        let r = 0, cnt = 0, vals = [], voiced = 0;
+        for (let k = i; k < Math.min(b, i + step); k++) {
+          r += frames[k].rms; cnt++;
+          if (tonesAll && tonesAll[k] !== null && tonesAll[k] !== undefined) { vals.push(tonesAll[k]); voiced++; }
+        }
+        r /= cnt;
+        SIL.push(r < SEG.SIL_RMS);
+        VO.push(voiced > 0);
+        E.push(r < SEG.SIL_RMS ? 0 : (voiced ? r : r * 0.4));
+        T.push(vals.length ? median(vals) : null);
       }
-      const w = nf(SEG.SMOOTH_MS);
-      const e = raw.map((_, i) => {
-        if (raw[i] === 0) return 0;
-        let sum = 0, cnt = 0;
-        for (let k = Math.max(0, i - w); k <= Math.min(L - 1, i + w); k++) { sum += raw[k]; cnt++; }
-        return sum / cnt;
-      });
-      const eMax = Math.max(...e) || 1;
+      const L = E.length;
+      if (L < N * 2) { // 너무 짧으면 균등 분할
+        const segs = []; for (let s = 0; s < N; s++) segs.push([a + Math.floor((b - a) * s / N), a + Math.floor((b - a) * (s + 1) / N)]);
+        return segs;
+      }
 
-      const cands = [];
-      // 무음 런: 길이에 따라 점수 (긴 휴지는 2점 이상 → 항상 우선)
-      for (let i = 0; i < L; ) {
-        if (raw[i] === 0) {
-          let j = i; while (j < L && raw[j] === 0) j++;
-          const lenMs = (j - i) * dt;
-          const score = lenMs > SEG.BRIDGE_MS ? 2 + lenMs / 1000 : 1 + lenMs / SEG.BRIDGE_MS * 0.5;
-          cands.push({ idx: Math.floor((i + j) / 2), score });
-          i = j;
-        } else i++;
-      }
-      // 에너지 골짜기: 국소 최소점의 돌출도
+      // 에너지 평활 + 경계 비용
+      const w = nf(SEG.SMOOTH_MS);
+      const Es = E.map((_, i) => { if (E[i] === 0) return 0; let su = 0, c = 0; for (let k = Math.max(0, i - w); k <= Math.min(L - 1, i + w); k++) { su += E[k]; c++; } return su / c; });
+      const eMax = Math.max(...Es) || 1;
       const pw = nf(SEG.PROM_WIN_MS);
-      for (let i = 1; i < L - 1; i++) {
-        if (raw[i] === 0) continue;
-        if (e[i] <= e[i - 1] && e[i] < e[i + 1]) {
-          let lMax = 0, rMax = 0;
-          for (let k = Math.max(0, i - pw); k < i; k++) lMax = Math.max(lMax, e[k]);
-          for (let k = i + 1; k <= Math.min(L - 1, i + pw); k++) rMax = Math.max(rMax, e[k]);
-          const prom = (Math.min(lMax, rMax) - e[i]) / eMax;
-          if (prom > 0.03) cands.push({ idx: i, score: prom });
+      const Bc = new Array(L + 1).fill(1);
+      for (let i = 0; i < L; i++) {
+        if (SIL[i]) { Bc[i] = 0; continue; }
+        let lMax = 0, rMax = 0;
+        for (let k = Math.max(0, i - pw); k < i; k++) lMax = Math.max(lMax, Es[k]);
+        for (let k = i + 1; k <= Math.min(L - 1, i + pw); k++) rMax = Math.max(rMax, Es[k]);
+        const prom = Math.max(0, Math.min(1, (Math.min(lMax, rMax) - Es[i]) / eMax));
+        Bc[i] = (1 - prom) * (VO[i] ? 1 : 0.6);
+      }
+      // 연음 경계 단서(템플릿과 무관): 약 30~50ms 사이의 급격한 음높이 재설정(점프)
+      const jw = Math.max(1, nf(35));
+      for (let i = jw; i < L - jw; i++) {
+        // 유성음이 끊기지 않고 이어지는 구간(연음)에서만 적용
+        let contiguous = true;
+        for (let k = Math.max(0, i - 3 * jw); k <= Math.min(L - 1, i + 3 * jw - 1); k++) if (T[k] === null) { contiguous = false; break; }
+        if (!contiguous) continue;
+        const jump = T[i + jw - 1] - T[i - jw];
+        // 앞뒤 곡선과 반대 방향으로 튀는 점프만 '재설정'으로 인정 (4성의 가파른 하강 자체는 제외)
+        const before = (i - 3 * jw >= 0) ? T[i - jw] - T[i - 3 * jw] : 0;
+        const after = (i + 3 * jw - 1 < L) ? T[i + 3 * jw - 1] - T[i + jw - 1] : 0;
+        if (!(jump * before < 0 || jump * after < 0)) continue;
+        const J = Math.abs(jump);
+        const jumpCost = 1 - Math.min(1, J / 1.2);
+        if (jumpCost < Bc[i]) Bc[i] = jumpCost;
+      }
+
+      // 가이드 템플릿(평균 제거, K점)과 기대 길이
+      const K = 8;
+      const syls = allSentenceSyllables;
+      const weights = [], G = [];
+      for (let s = 0; s < N; s++) {
+        const sy = syls[s] || {};
+        weights.push(sy.isParticle ? 0.35 : 1);
+        if (sy.isDot || !sy.curvePoints) G.push(new Array(K).fill(0));
+        else { const g = resampleSegment(sy.curvePoints, K); const m = g.reduce((x, y) => x + y, 0) / K; G.push(g.map(v => v - m)); }
+      }
+      const wSum = weights.reduce((x, y) => x + y, 0);
+      const expLen = weights.map(wt => L * wt / wSum);
+      const longGap = nf(SEG.BRIDGE_MS);
+
+      function segCost(s, i, j) {
+        const len = j - i;
+        const vals = [];
+        let run = 0, maxRun = 0;
+        for (let k = i; k < j; k++) {
+          if (T[k] !== null) vals.push(T[k]);
+          if (SIL[k]) { run++; if (k > i && k < j - 1) maxRun = Math.max(maxRun, run); } else run = 0;
+        }
+        let shape;
+        if (vals.length < 3) shape = 0.6;
+        else {
+          const u = resampleSegment(vals, K); const m = u.reduce((x, y) => x + y, 0) / K;
+          let se = 0; for (let k = 0; k < K; k++) se += (u[k] - m - G[s][k]) ** 2;
+          shape = Math.sqrt(se / K);
+        }
+        const r = Math.log(len / expLen[s]);
+        const silPen = maxRun > longGap ? 2.0 : 0;
+        return 0.5 * shape + 0.25 * r * r + silPen;
+      }
+
+      const minLen = Math.max(2, nf(50));
+      const INF = 1e18;
+      const D = Array.from({ length: N + 1 }, () => new Float64Array(L + 1).fill(INF));
+      const BP = Array.from({ length: N + 1 }, () => new Int32Array(L + 1).fill(-1));
+      D[0][0] = 0;
+      const MU = 1.0;
+      for (let k = 1; k <= N; k++) {
+        const maxLen = Math.min(L, Math.ceil(expLen[k - 1] * 4) + nf(150));
+        const jMin = k * minLen, jMax = L - (N - k) * minLen;
+        for (let j = jMin; j <= jMax; j++) {
+          for (let i = Math.max((k - 1) * minLen, j - maxLen); i <= j - minLen; i++) {
+            if (D[k - 1][i] >= INF) continue;
+            const c = D[k - 1][i] + segCost(k - 1, i, j) + (k > 1 ? MU * Bc[i] : 0);
+            if (c < D[k][j]) { D[k][j] = c; BP[k][j] = i; }
+          }
         }
       }
-
-      cands.sort((x, y) => y.score - x.score);
-      const minGap = nf(SEG.MIN_SYL_MS);
-      const picked = [];
-      for (const c of cands) {
-        if (picked.length >= N - 1) break;
-        if (c.idx < minGap / 2 || c.idx > L - minGap / 2) continue;
-        if (picked.every(p => Math.abs(p - c.idx) >= minGap)) picked.push(c.idx);
+      if (D[N][L] >= INF) {
+        const segs = []; for (let s = 0; s < N; s++) segs.push([a + Math.floor((b - a) * s / N), a + Math.floor((b - a) * (s + 1) / N)]);
+        return segs;
       }
-      picked.sort((x, y) => x - y);
-
-      let bounds = [0, ...picked, L];
-      // 후보가 모자라면 가장 긴 구간을 그 안의 에너지 최소점(없으면 중앙)에서 추가 분할
-      while (bounds.length - 1 < N) {
-        let maxLen = -1, mi = -1;
-        for (let i = 0; i < bounds.length - 1; i++) if (bounds[i + 1] - bounds[i] > maxLen) { maxLen = bounds[i + 1] - bounds[i]; mi = i; }
-        if (maxLen < 2) break;
-        const s0 = bounds[mi], s1 = bounds[mi + 1];
-        let split = Math.floor((s0 + s1) / 2), minE = Infinity;
-        for (let k = s0 + Math.floor(maxLen * 0.3); k <= s0 + Math.floor(maxLen * 0.7); k++) if (e[k] < minE) { minE = e[k]; split = k; }
-        if (split <= s0 || split >= s1) split = Math.floor((s0 + s1) / 2);
-        bounds.splice(mi + 1, 0, split);
-      }
+      const cuts = [L];
+      let j = L;
+      for (let k = N; k >= 1; k--) { j = BP[k][j]; cuts.push(j); }
+      cuts.reverse();
       const segs = [];
-      for (let i = 0; i < bounds.length - 1; i++) segs.push([a + bounds[i], a + bounds[i + 1]]);
+      for (let s = 0; s < N; s++) segs.push([a + cuts[s] * step, Math.min(b, a + cuts[s + 1] * step)]);
       return segs;
     }
 
@@ -1217,7 +1276,7 @@
     function analyzeUtterance(frames, N, applyTone1Boost) {
       const hz = correctOctaveErrors(frames.map(f => f.pitch));
       const tonesAll = dynamicScaleHzArray(hz);
-      const segs = segmentUtterance(frames, N);
+      const segs = segmentUtterance(frames, N, tonesAll);
       const out = [];
       for (let s = 0; s < N; s++) {
         const seg = segs[s];
@@ -1225,7 +1284,7 @@
         let tones = [];
         for (let i = seg[0]; i < seg[1]; i++) if (tonesAll[i] !== null) tones.push(tonesAll[i]);
         if (tones.length < 3) { out.push([]); continue; }   // 검출 실패 음절은 비워 둠(가짜 곡선 금지)
-        const cut = Math.floor(tones.length * 0.06);
+        const cut = Math.floor(tones.length * 0.04);
         if (tones.length - 2 * cut >= 3) tones = tones.slice(cut, tones.length - cut);
         const targetSyl = allSentenceSyllables[s];
         if (applyTone1Boost && targetSyl && targetSyl.actualTone === 1) {
@@ -1248,9 +1307,8 @@
       const nKey = Math.min(8, mf.length);
       const key = [];
       for (let p = 0; p < nKey; p++) {
-        const st = Math.floor(p * mf.length / nKey);
-        const en = Math.max(st + 1, Math.floor((p + 1) * mf.length / nKey));
-        const sl = mf.slice(st, en);
+        const c = Math.round(p * (mf.length - 1) / (nKey - 1));
+        const sl = mf.slice(Math.max(0, c - 1), Math.min(mf.length, c + 2));
         key.push(sl.reduce((x, y) => x + y, 0) / sl.length);
       }
       return resampleSegment(key, 28);
