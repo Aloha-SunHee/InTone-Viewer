@@ -910,13 +910,9 @@
       hideFeedback();
 
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioCtx.createMediaStreamSource(micStream);
-
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 2048;
-        source.connect(analyser);
+        const firstOpen = !(micStream && micStream.active && audioCtx && audioCtx.state !== "closed");
+        if (firstOpen) recBtnText.innerText = "준비…";
+        await ensureMic();
 
         audioChunks = [];
         try {
@@ -935,8 +931,11 @@
         rawFrameStream = [];
         userSyllableCurves = [];
 
+        peakRms = 0;
         recBtn.classList.add("recording");
-        recBtnText.innerText = "정지";
+        // 마이크가 실제로 켜진 뒤에 '말하세요'를 보여 줌 (첫 음절이 잘리지 않도록)
+        recBtnText.innerText = "말하세요";
+        setTimeout(() => { if (isRecording) recBtnText.innerText = "정지"; }, 900);
 
         drawCanvas();
         sampleLoop();
@@ -945,6 +944,37 @@
       }
     }
 
+    // 마이크는 한 번 열면 페이지를 떠날 때까지 유지 → 두 번째 녹음부터는 켜지는 지연이 없음
+    // 브라우저의 잡음 제거·자동 음량·에코 제거는 끔: 잡음 제거가 약한 음절(3성 저음역 등)을 통째로 지우는 문제 방지
+    let micSource = null;
+    async function ensureMic() {
+      if (micStream && micStream.active && audioCtx && audioCtx.state !== "closed") {
+        if (audioCtx.state === "suspended") await audioCtx.resume();
+        return;
+      }
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+        });
+      } catch (e) {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      micSource = audioCtx.createMediaStreamSource(micStream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      micSource.connect(analyser);
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+    }
+    function releaseMic() {
+      if (isRecording) return;
+      if (micStream) micStream.getTracks().forEach(t => t.stop());
+      if (audioCtx && audioCtx.state !== "closed") audioCtx.close();
+      micStream = null; audioCtx = null; analyser = null; micSource = null;
+    }
+    document.addEventListener("visibilitychange", () => { if (document.hidden) releaseMic(); });
+
+    let peakRms = 0;
     function sampleLoop() {
       if (!isRecording) return;
       const buffer = new Float32Array(analyser.fftSize);
@@ -959,7 +989,9 @@
         clarity: result.clarity || 0
       });
 
-      if (result.hasVoice) {
+      peakRms = Math.max(peakRms, result.rms);
+      const speaking = result.hasVoice && result.rms >= Math.max(0.012, peakRms * 0.08);
+      if (speaking) {
         hasSpeechStarted = true;
         silenceStartTimestamp = null;
       } else {
@@ -996,15 +1028,13 @@
         mediaRecorder.stop();
       }
 
-      if (micStream) micStream.getTracks().forEach(t => t.stop());
-      if (audioCtx) audioCtx.close();
 
       recBtn.classList.remove("recording");
       recBtnText.innerText = "녹음";
 
       alignAndNormalizeToChunks();
       lastAnalysis = {
-        version: "v6",
+        version: "v8",
         sentence: currentSentence,
         savedAt: getNowFormattedString(),
         userAgent: navigator.userAgent,
@@ -1050,7 +1080,7 @@
       let sumSquares = 0;
       for (let i = 0; i < buffer.length; i++) sumSquares += buffer[i] * buffer[i];
       const rms = Math.sqrt(sumSquares / buffer.length);
-      if (rms < 0.014) return { hasVoice: false, pitch: 0, rms: rms };
+      if (rms < 0.006) return { hasVoice: false, pitch: 0, rms: rms };
 
       let r1 = 0, r2 = buffer.length - 1;
       const thres = 0.2;
@@ -1120,7 +1150,7 @@
 
     // ===== 음절 분절 파라미터 (ms 단위: 기기 화면 주사율과 무관) =====
     const SEG = {
-      SIL_RMS: 0.014,     // 이보다 작으면 무음
+      SIL_RMS: 0.006,     // 이보다 작으면 무음 (자동 음량 조절을 끈 입력 기준)
       BRIDGE_MS: 90,      // 이 길이 이하의 무음/무성 간격은 '미세 갭': 강제 경계로 보지 않고 후보로만 경쟁
       MIN_SYL_MS: 70,     // 음절 경계 간 최소 간격
       SMOOTH_MS: 40,      // 에너지 곡선 평활 창
@@ -1369,11 +1399,38 @@
     // 배경 소음 제거: 그 녹음에서 실제 목소리 크기(유성 프레임 음량의 95백분위)의 15%보다 작은 프레임은 무음으로 간주
     // → 말하기 전·후의 팬/전원 소음(예: 일정한 77Hz)이 첫 음절로 잡히거나 음역 바닥을 끌어내리는 것을 막음
     function gateBackgroundNoise(frames) {
-      const voicedRms = frames.filter(f => f.pitch && f.rms >= SEG.SIL_RMS).map(f => f.rms).sort((x, y) => x - y);
-      if (voicedRms.length < 5) return frames;
+      // ① 기계 소음(험) 제거: 3프레임 이상 이어지는 유성 구간 중, 음높이가 110Hz 미만이면서
+      //    거의 변하지 않는(표준편차 0.2반음 미만) 구간은 사람 목소리가 아니므로 무음 처리 (예: 77Hz 팬·전원 소음)
+      const out = frames.map(f => ({ ...f }));
+      for (let i = 0; i < out.length; ) {
+        if (!out[i].pitch) { i++; continue; }
+        let j = i; while (j < out.length && out[j].pitch) j++;
+        if (j - i >= 3) {
+          const st = out.slice(i, j).map(f => 12 * Math.log2(f.pitch));
+          const m = st.reduce((a, b) => a + b, 0) / st.length;
+          const sd = Math.sqrt(st.reduce((a, b) => a + (b - m) ** 2, 0) / st.length);
+          if (median(out.slice(i, j).map(f => f.pitch)) < 110 && sd < 0.2) {
+            for (let k = i; k < j; k++) out[k] = { t: out[k].t, pitch: null, rms: 0, clarity: 0 };
+          }
+        }
+        i = j;
+      }
+      // ② 아주 작은 소리만 무음 처리: 그 녹음의 목소리 크기(유성 프레임 음량 95백분위)의 5% 미만
+      //    (작게 말한 음절은 보존 — 15%였을 때 약하게 낸 韩·人 끝이 지워지는 문제가 있었음)
+      const voicedRms = out.filter(f => f.pitch && f.rms > 0).map(f => f.rms).sort((x, y) => x - y);
+      if (voicedRms.length < 5) return out;
       const p95 = voicedRms[Math.floor(voicedRms.length * 0.95)];
-      const thr = Math.max(SEG.SIL_RMS, p95 * 0.15);
-      return frames.map(f => f.rms < thr ? { t: f.t, pitch: null, rms: 0, clarity: 0 } : f);
+      const thr = Math.max(SEG.SIL_RMS, p95 * 0.05);
+      const gated = out.map(f => f.rms < thr ? { t: f.t, pitch: null, rms: 0, clarity: 0 } : f);
+      // ③ 자음은 모음 바로 앞뒤에만 있으므로, 유성(모음) 프레임에서 150ms 넘게 떨어진 '소리만 있는' 프레임은 소음으로 처리
+      const voicedT = gated.filter(f => f.pitch).map(f => f.t);
+      if (!voicedT.length) return gated;
+      let vi = 0;
+      return gated.map(f => {
+        if (f.pitch || f.rms === 0) return f;
+        while (vi < voicedT.length - 1 && Math.abs(voicedT[vi + 1] - f.t) <= Math.abs(voicedT[vi] - f.t)) vi++;
+        return Math.abs(voicedT[vi] - f.t) > 150 ? { t: f.t, pitch: null, rms: 0, clarity: 0 } : f;
+      });
     }
 
     function analyzeUtterance(frames, N, applyTone1Boost) {
