@@ -224,8 +224,8 @@
       border: 1px solid #1e293b;
     }
     canvas {
-      width: 100%;
-      height: 100%;
+      position: absolute;
+      top: 0; left: 0;
       display: block;
     }
 
@@ -509,13 +509,26 @@
 
     let userSyllableCurves = [];
 
+    // 캔버스 논리 크기(CSS px). 모바일 주소창·회전으로 카드 크기가 바뀌어도 비트맵이 늘어나거나 눌리지 않도록
+    // devicePixelRatio 반영 + ResizeObserver로 실제 표시 크기를 매번 다시 잰다.
+    let CW = 0, CH = 0;
     function resizeCanvas() {
       if (!canvasCard) return;
-      canvas.width = canvasCard.clientWidth;
-      canvas.height = canvasCard.clientHeight;
+      const rect = canvasCard.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      CW = Math.max(1, Math.round(rect.width));
+      CH = Math.max(1, Math.round(rect.height));
+      canvas.width = Math.round(CW * dpr);
+      canvas.height = Math.round(CH * dpr);
+      canvas.style.width = CW + "px";
+      canvas.style.height = CH + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawCanvas();
     }
     window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
+    if (window.visualViewport) window.visualViewport.addEventListener("resize", resizeCanvas);
+    if (window.ResizeObserver) new ResizeObserver(() => resizeCanvas()).observe(canvasCard);
 
     function openInputModal() {
       document.getElementById("modalInput").value = currentSentence;
@@ -613,9 +626,19 @@
         }
       });
 
+      // 문장부호(쉼표 등) 바로 앞 음절 = 휴지 앞 음절 → 전3성 유지
+      if (!/[a-zA-Z]/.test(rawText)) {
+        let hanziIdx = -1;
+        const chars = Array.from(rawText);
+        chars.forEach(ch => {
+          if (/[\u4e00-\u9fa5]/.test(ch)) hanziIdx++;
+          else if (/[，。？！、；：,?!.;:]/.test(ch) && hanziIdx >= 0 && allSyllables[hanziIdx]) allSyllables[hanziIdx].phraseFinal = true;
+        });
+      }
+
       for (let i = 0; i < allSyllables.length; i++) {
         const cur = allSyllables[i];
-        const next = (i < allSyllables.length - 1) ? allSyllables[i + 1] : null;
+        const next = (i < allSyllables.length - 1 && !cur.phraseFinal) ? allSyllables[i + 1] : null;
 
         if (cur.tone === 3) {
           if (next) {
@@ -717,94 +740,86 @@
       ctx.restore();
     }
 
+    const sylWeight = s => s.isParticle ? 0.35 : 1;
+
     function drawCanvas() {
-      if (!canvas.width || !canvas.height) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!CW || !CH) return;
+      ctx.clearRect(0, 0, CW, CH);
 
       const topPad = 22;
       const bottomPad = 22;
-      const plotHeight = canvas.height - topPad - bottomPad;
+      const plotHeight = CH - topPad - bottomPad;
+      const yOf = v => CH - bottomPad - ((v - 1) / 4) * plotHeight;
 
       ctx.lineWidth = 1;
       for (let level = 1; level <= 5; level++) {
-        const y = canvas.height - bottomPad - ((level - 1) / 4) * plotHeight;
+        const y = yOf(level);
         ctx.strokeStyle = (level === 5 || level === 1) ? "#334155" : "#1e293b";
         ctx.beginPath();
         ctx.moveTo(30, y);
-        ctx.lineTo(canvas.width - 15, y);
+        ctx.lineTo(CW - 15, y);
         ctx.stroke();
-
         ctx.fillStyle = "#64748b";
         ctx.font = "bold 10px sans-serif";
         ctx.fillText(level + "도", 8, y + 3);
       }
 
-      const numChunks = activeChunks.length;
-      if (numChunks === 0) return;
+      if (activeChunks.length === 0) return;
 
       const marginX = 35;
-      const usableWidth = canvas.width - marginX * 2;
-      const chunkWidth = usableWidth / numChunks;
+      const usableWidth = CW - marginX * 2;
+      const chunkWeights = activeChunks.map(c => c.syllables.reduce((a, s) => a + sylWeight(s), 0));
+      const totalWeight = chunkWeights.reduce((a, b) => a + b, 0) || 1;
 
-      for (let i = 0; i <= numChunks; i++) {
-        const x = marginX + i * chunkWidth;
-        ctx.strokeStyle = "#1e293b";
-        ctx.beginPath();
-        ctx.moveTo(x, topPad);
-        ctx.lineTo(x, canvas.height - bottomPad);
-        ctx.stroke();
-      }
-
+      let xCursor = marginX;
       let globalSylIdx = 0;
+      ctx.strokeStyle = "#1e293b";
+      ctx.lineWidth = 1;
 
       activeChunks.forEach((chunk, cIdx) => {
-        const chunkStartX = marginX + cIdx * chunkWidth + 8;
-        const chunkInnerW = chunkWidth - 16;
-        const syls = chunk.syllables;
-        const numSyls = syls.length;
-        const sylSlotW = chunkInnerW / numSyls;
+        const chunkWidth = usableWidth * chunkWeights[cIdx] / totalWeight;
+        ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(xCursor, topPad); ctx.lineTo(xCursor, CH - bottomPad); ctx.stroke();
 
-        syls.forEach((s, sIdx) => {
-          const sylStartX = chunkStartX + sIdx * sylSlotW + 4;
-          const sylW = sylSlotW - 8;
+        const chunkStartX = xCursor + 8;
+        const chunkInnerW = chunkWidth - 16;
+        let sx = chunkStartX;
+
+        chunk.syllables.forEach((s) => {
+          const slotW = chunkInnerW * sylWeight(s) / chunkWeights[cIdx];
+          const sylStartX = sx + 4;
+          const sylW = Math.max(4, slotW - 8);
 
           // 1. 기준 가이드선 (녹색, 8px)
           if (s.isDot) {
-            const dotX = sylStartX + sylW / 2;
-            const dotY = canvas.height - bottomPad - ((s.neutralPitch - 1) / 4) * plotHeight;
-            drawNeutralDot(dotX, dotY, "#4ade80");
+            drawNeutralDot(sylStartX + sylW / 2, yOf(s.neutralPitch), "#4ade80");
           } else {
-            const pts = s.curvePoints.map((val, pIdx) => {
-              const x = sylStartX + (pIdx / (s.curvePoints.length - 1)) * sylW;
-              const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
-              return { x, y };
-            });
+            const pts = s.curvePoints.map((val, pIdx) => ({
+              x: sylStartX + (pIdx / (s.curvePoints.length - 1)) * sylW, y: yOf(val)
+            }));
             drawSmoothCurve(pts, "#4ade80", 8.0);
           }
 
-          // 2. 학습자 발음선 (오렌지색, 8px)
-          if (userSyllableCurves && userSyllableCurves[globalSylIdx]) {
-            const uCurve = userSyllableCurves[globalSylIdx];
-            if (uCurve && uCurve.length > 0) {
-              if (s.isDot) {
-                const avgPitch = uCurve.reduce((a, b) => a + b, 0) / uCurve.length;
-                const dotX = sylStartX + sylW / 2;
-                const dotY = canvas.height - bottomPad - ((avgPitch - 1) / 4) * plotHeight;
-                drawNeutralDot(dotX, dotY, "#fb923c");
-              } else {
-                const pts = uCurve.map((val, pIdx) => {
-                  const x = sylStartX + (pIdx / (uCurve.length - 1)) * sylW;
-                  const y = canvas.height - bottomPad - ((val - 1) / 4) * plotHeight;
-                  return { x, y };
-                });
-                drawSmoothCurve(pts, "#fb923c", 8.0);
-              }
+          // 2. 학습자 발음선 (오렌지색, 8px) — 검출되지 않은 음절은 그리지 않음
+          const uCurve = userSyllableCurves && userSyllableCurves[globalSylIdx];
+          if (uCurve && uCurve.length > 0) {
+            if (s.isDot) {
+              const avgPitch = uCurve.reduce((a, b) => a + b, 0) / uCurve.length;
+              drawNeutralDot(sylStartX + sylW / 2, yOf(avgPitch), "#fb923c");
+            } else {
+              const pts = uCurve.map((val, pIdx) => ({
+                x: sylStartX + (pIdx / (uCurve.length - 1)) * sylW, y: yOf(val)
+              }));
+              drawSmoothCurve(pts, "#fb923c", 8.0);
             }
           }
-
+          sx += slotW;
           globalSylIdx++;
         });
+        xCursor += chunkWidth;
       });
+      ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(xCursor, topPad); ctx.lineTo(xCursor, CH - bottomPad); ctx.stroke();
     }
 
     async function handleAudioUpload(event) {
@@ -840,47 +855,16 @@
       const sampleRate = audioBuffer.sampleRate;
       const windowSize = 2048;
       const stepSize = 512;
-      const extractedHz = [];
-
+      const frames = [];
       for (let i = 0; i < rawData.length - windowSize; i += stepSize) {
-        const slice = rawData.subarray(i, i + windowSize);
-        const res = detectPitchAndVolume(slice, sampleRate);
-        if (res.hasVoice) extractedHz.push(res.pitch);
-        else extractedHz.push(null);
+        const res = detectPitchAndVolume(rawData.subarray(i, i + windowSize), sampleRate);
+        frames.push({ pitch: res.hasVoice ? res.pitch : null, rms: res.rms, t: (i / sampleRate) * 1000 });
       }
-
-      const toneLevels = dynamicScaleHzArray(extractedHz);
-      const segments = [];
-      let cur = [];
-      for (let p of toneLevels) {
-        if (p !== null) cur.push(p);
-        else {
-          if (cur.length >= 6) segments.push(cur);
-          cur = [];
-        }
-      }
-      if (cur.length >= 6) segments.push(cur);
-
-      const targetCount = allSentenceSyllables.length;
-      let merged = [...segments];
-      while (merged.length > targetCount) {
-        let minLen = Infinity, minIdx = -1;
-        for (let i = 0; i < merged.length; i++) {
-          if (merged[i].length < minLen) { minLen = merged[i].length; minIdx = i; }
-        }
-        if (minIdx > 0) {
-          merged[minIdx - 1] = merged[minIdx - 1].concat(merged[minIdx]);
-          merged.splice(minIdx, 1);
-        } else if (minIdx < merged.length - 1) {
-          merged[minIdx + 1] = merged[minIdx].concat(merged[minIdx + 1]);
-          merged.splice(minIdx, 1);
-        } else break;
-      }
-
-      merged.forEach((seg, idx) => {
-        if (idx < allSentenceSyllables.length) {
-          allSentenceSyllables[idx].curvePoints = resampleSegment(seg, 35);
-        }
+      const N = allSentenceSyllables.length;
+      const sylTones = analyzeUtterance(frames, N, false);
+      sylTones.forEach((tones, idx) => {
+        const syl = allSentenceSyllables[idx];
+        if (syl && !syl.isDot && tones.length >= 3) syl.curvePoints = resampleSegment(simplifySyllableToToneCurve(tones), 35);
       });
       drawCanvas();
     }
@@ -970,7 +954,8 @@
 
       rawFrameStream.push({
         pitch: result.hasVoice ? result.pitch : null,
-        rms: result.rms
+        rms: result.rms,
+        t: currentTime
       });
 
       if (result.hasVoice) {
@@ -1108,139 +1093,175 @@
         const curSemi = 12 * Math.log2(hz);
         let norm = (curSemi - minSemi) / semitoneRange;
         // 1성 발화가 4.85도에 정확히 닿도록 정규화 범위를 1.2도 ~ 4.85도로 매핑
-        norm = Math.max(0, Math.min(1, norm));
+        norm = Math.max(-0.03, Math.min(1.04, norm));
         return 1.25 + norm * 3.60;
       });
     }
 
-    function simplifySyllableToToneCurve(rawSeg) {
-      if (!rawSeg || rawSeg.length === 0) return [3.0, 3.0, 3.0, 3.0];
-      if (rawSeg.length <= 4) return resampleSegment(rawSeg, 28);
+    // ===== 음절 분절 파라미터 (ms 단위: 기기 화면 주사율과 무관) =====
+    const SEG = {
+      SIL_RMS: 0.014,     // 이보다 작으면 무음
+      BRIDGE_MS: 90,      // 이 길이 이하의 무음/무성 간격은 '미세 갭': 강제 경계로 보지 않고 후보로만 경쟁
+      MIN_SYL_MS: 70,     // 음절 경계 간 최소 간격
+      SMOOTH_MS: 40,      // 에너지 곡선 평활 창
+      PROM_WIN_MS: 160    // 골짜기 돌출도(prominence) 탐색 창
+    };
 
-      const filtered = [...rawSeg];
-      for (let k = 1; k < filtered.length - 1; k++) {
-        if (Math.abs(filtered[k] - filtered[k - 1]) > 0.85 && Math.abs(filtered[k] - filtered[k + 1]) > 0.85) {
-          filtered[k] = (filtered[k - 1] + filtered[k + 1]) / 2;
+    function median(arr) {
+      if (!arr.length) return 0;
+      const s = [...arr].sort((a, b) => a - b);
+      return s[Math.floor(s.length / 2)];
+    }
+
+    // 옥타브 오류(피치 반감·배가) 보정: 발화 중앙값에서 9~10반음 이상 벗어난 프레임을 한 옥타브 접어 넣음
+    function correctOctaveErrors(hzArr) {
+      const st = hzArr.map(h => (h && h > 0) ? 12 * Math.log2(h) : null);
+      const valid = st.filter(v => v !== null);
+      if (valid.length < 3) return hzArr;
+      const med = median(valid);
+      return st.map(v => {
+        if (v === null) return null;
+        let x = v;
+        if (x - med > 9) x -= 12;
+        else if (med - x > 10) x += 12;
+        return Math.pow(2, x / 12);
+      });
+    }
+
+    // 에너지 기반 음절 분절. 반환: 음절별 [시작프레임, 끝프레임) 배열
+    // ① 발화 구간은 '유성'이 아니라 '에너지'로 잡는다 → 피치가 안 잡히는 약한 3성·보컬프라이 음절도 자기 칸을 잃지 않음
+    // ② 무음 구간과 무성 구간(q·c·ch·sh 등)은 에너지 골짜기로 표현되어 경계 후보가 됨
+    //    - BRIDGE_MS 이하의 미세 갭은 강제 경계가 아니라 다른 골짜기와 돌출도로 경쟁(브리징)
+    //    - 그보다 긴 휴지는 최우선 경계
+    // ③ 돌출도 순으로 N-1개 경계를 고르되 최소 간격(MIN_SYL_MS)을 지킴
+    function segmentUtterance(frames, N) {
+      if (!frames.length || N <= 0) return [];
+      const dts = [];
+      for (let i = 1; i < frames.length; i++) { const d = frames[i].t - frames[i - 1].t; if (d > 0) dts.push(d); }
+      const dt = median(dts) || 16.7;
+      const nf = ms => Math.max(1, Math.round(ms / dt));
+
+      let a = -1, b = -1;
+      for (let i = 0; i < frames.length; i++) if (frames[i].rms >= SEG.SIL_RMS) { if (a < 0) a = i; b = i; }
+      if (a < 0) return [];
+      b = b + 1; // exclusive
+      const L = b - a;
+      if (N === 1) return [[a, b]];
+
+      const raw = [];
+      for (let i = a; i < b; i++) {
+        const fr = frames[i];
+        raw.push(fr.rms < SEG.SIL_RMS ? 0 : (fr.pitch ? fr.rms : fr.rms * 0.4));
+      }
+      const w = nf(SEG.SMOOTH_MS);
+      const e = raw.map((_, i) => {
+        if (raw[i] === 0) return 0;
+        let sum = 0, cnt = 0;
+        for (let k = Math.max(0, i - w); k <= Math.min(L - 1, i + w); k++) { sum += raw[k]; cnt++; }
+        return sum / cnt;
+      });
+      const eMax = Math.max(...e) || 1;
+
+      const cands = [];
+      // 무음 런: 길이에 따라 점수 (긴 휴지는 2점 이상 → 항상 우선)
+      for (let i = 0; i < L; ) {
+        if (raw[i] === 0) {
+          let j = i; while (j < L && raw[j] === 0) j++;
+          const lenMs = (j - i) * dt;
+          const score = lenMs > SEG.BRIDGE_MS ? 2 + lenMs / 1000 : 1 + lenMs / SEG.BRIDGE_MS * 0.5;
+          cands.push({ idx: Math.floor((i + j) / 2), score });
+          i = j;
+        } else i++;
+      }
+      // 에너지 골짜기: 국소 최소점의 돌출도
+      const pw = nf(SEG.PROM_WIN_MS);
+      for (let i = 1; i < L - 1; i++) {
+        if (raw[i] === 0) continue;
+        if (e[i] <= e[i - 1] && e[i] < e[i + 1]) {
+          let lMax = 0, rMax = 0;
+          for (let k = Math.max(0, i - pw); k < i; k++) lMax = Math.max(lMax, e[k]);
+          for (let k = i + 1; k <= Math.min(L - 1, i + pw); k++) rMax = Math.max(rMax, e[k]);
+          const prom = (Math.min(lMax, rMax) - e[i]) / eMax;
+          if (prom > 0.03) cands.push({ idx: i, score: prom });
         }
       }
 
-      const keyPoints = [];
-      const partLen = Math.floor(filtered.length / 4);
-      for (let p = 0; p < 4; p++) {
-        const slice = filtered.slice(p * partLen, (p === 3) ? filtered.length : (p + 1) * partLen);
-        slice.sort((a, b) => a - b);
-        const med = slice[Math.floor(slice.length / 2)];
-        keyPoints.push(med);
+      cands.sort((x, y) => y.score - x.score);
+      const minGap = nf(SEG.MIN_SYL_MS);
+      const picked = [];
+      for (const c of cands) {
+        if (picked.length >= N - 1) break;
+        if (c.idx < minGap / 2 || c.idx > L - minGap / 2) continue;
+        if (picked.every(p => Math.abs(p - c.idx) >= minGap)) picked.push(c.idx);
       }
+      picked.sort((x, y) => x - y);
 
-      return resampleSegment(keyPoints, 28);
+      let bounds = [0, ...picked, L];
+      // 후보가 모자라면 가장 긴 구간을 그 안의 에너지 최소점(없으면 중앙)에서 추가 분할
+      while (bounds.length - 1 < N) {
+        let maxLen = -1, mi = -1;
+        for (let i = 0; i < bounds.length - 1; i++) if (bounds[i + 1] - bounds[i] > maxLen) { maxLen = bounds[i + 1] - bounds[i]; mi = i; }
+        if (maxLen < 2) break;
+        const s0 = bounds[mi], s1 = bounds[mi + 1];
+        let split = Math.floor((s0 + s1) / 2), minE = Infinity;
+        for (let k = s0 + Math.floor(maxLen * 0.3); k <= s0 + Math.floor(maxLen * 0.7); k++) if (e[k] < minE) { minE = e[k]; split = k; }
+        if (split <= s0 || split >= s1) split = Math.floor((s0 + s1) / 2);
+        bounds.splice(mi + 1, 0, split);
+      }
+      const segs = [];
+      for (let i = 0; i < bounds.length - 1; i++) segs.push([a + bounds[i], a + bounds[i + 1]]);
+      return segs;
+    }
+
+    // 프레임 → (옥타브 보정 → 반음·화자 정규화 → 에너지 분절) → 음절별 5도 값 배열
+    function analyzeUtterance(frames, N, applyTone1Boost) {
+      const hz = correctOctaveErrors(frames.map(f => f.pitch));
+      const tonesAll = dynamicScaleHzArray(hz);
+      const segs = segmentUtterance(frames, N);
+      const out = [];
+      for (let s = 0; s < N; s++) {
+        const seg = segs[s];
+        if (!seg) { out.push([]); continue; }
+        let tones = [];
+        for (let i = seg[0]; i < seg[1]; i++) if (tonesAll[i] !== null) tones.push(tonesAll[i]);
+        if (tones.length < 3) { out.push([]); continue; }   // 검출 실패 음절은 비워 둠(가짜 곡선 금지)
+        const cut = Math.floor(tones.length * 0.06);
+        if (tones.length - 2 * cut >= 3) tones = tones.slice(cut, tones.length - cut);
+        const targetSyl = allSentenceSyllables[s];
+        if (applyTone1Boost && targetSyl && targetSyl.actualTone === 1) {
+          const avgVal = tones.reduce((x, y) => x + y, 0) / tones.length;
+          if (avgVal < 4.80) {
+            const boost = 4.85 - avgVal;
+            tones = tones.map(v => Math.min(4.90, v + boost * 0.85));
+          }
+        }
+        out.push(tones);
+      }
+      return out;
+    }
+
+    // 궤적 단순화: 5점 중앙값 필터(스파이크 제거) → 최대 8개 구간 평균을 제어점으로 → 28점
+    function simplifySyllableToToneCurve(rawSeg) {
+      if (!rawSeg || rawSeg.length === 0) return [];
+      if (rawSeg.length <= 4) return resampleSegment(rawSeg, 28);
+      const mf = rawSeg.map((_, i) => median(rawSeg.slice(Math.max(0, i - 2), i + 3)));
+      const nKey = Math.min(8, mf.length);
+      const key = [];
+      for (let p = 0; p < nKey; p++) {
+        const st = Math.floor(p * mf.length / nKey);
+        const en = Math.max(st + 1, Math.floor((p + 1) * mf.length / nKey));
+        const sl = mf.slice(st, en);
+        key.push(sl.reduce((x, y) => x + y, 0) / sl.length);
+      }
+      return resampleSegment(key, 28);
     }
 
     function alignAndNormalizeToChunks() {
-      const rawPitches = rawFrameStream.map(f => f.pitch);
-      const dynamicScaledTones = dynamicScaleHzArray(rawPitches);
-      const totalSyllablesCount = allSentenceSyllables.length;
-
-      if (totalSyllablesCount === 0 || rawFrameStream.length === 0) {
-        userSyllableCurves = [];
-        return;
-      }
-
-      const vowelBlocks = [];
-      let curBlock = [];
-
-      for (let i = 0; i < dynamicScaledTones.length; i++) {
-        const tone = dynamicScaledTones[i];
-        if (tone !== null) {
-          curBlock.push({ idx: i, tone: tone, rms: rawFrameStream[i].rms });
-        } else {
-          if (curBlock.length >= 4) vowelBlocks.push(curBlock);
-          curBlock = [];
-        }
-      }
-      if (curBlock.length >= 4) vowelBlocks.push(curBlock);
-
-      let separatedSyllables = [];
-
-      vowelBlocks.forEach(block => {
-        if (block.length >= 18 && totalSyllablesCount > vowelBlocks.length) {
-          const searchStart = Math.floor(block.length * 0.3);
-          const searchEnd = Math.floor(block.length * 0.7);
-          let minRms = Infinity, splitIdx = Math.floor(block.length / 2);
-
-          for (let k = searchStart; k <= searchEnd; k++) {
-            if (block[k].rms < minRms) {
-              minRms = block[k].rms;
-              splitIdx = k;
-            }
-          }
-          separatedSyllables.push(block.slice(0, splitIdx));
-          separatedSyllables.push(block.slice(splitIdx));
-        } else {
-          separatedSyllables.push(block);
-        }
-      });
-
-      while (separatedSyllables.length < totalSyllablesCount) {
-        let maxLen = -1, maxIdx = -1;
-        for (let i = 0; i < separatedSyllables.length; i++) {
-          if (separatedSyllables[i].length > maxLen) {
-            maxLen = separatedSyllables[i].length;
-            maxIdx = i;
-          }
-        }
-        if (maxLen >= 8) {
-          const target = separatedSyllables[maxIdx];
-          const mid = Math.floor(target.length / 2);
-          separatedSyllables.splice(maxIdx, 1, target.slice(0, mid), target.slice(mid));
-        } else break;
-      }
-
-      while (separatedSyllables.length > totalSyllablesCount) {
-        let minLen = Infinity, minIdx = -1;
-        for (let i = 0; i < separatedSyllables.length; i++) {
-          if (separatedSyllables[i].length < minLen) {
-            minLen = separatedSyllables[i].length;
-            minIdx = i;
-          }
-        }
-        if (minIdx > 0) {
-          separatedSyllables[minIdx - 1] = separatedSyllables[minIdx - 1].concat(separatedSyllables[minIdx]);
-          separatedSyllables.splice(minIdx, 1);
-        } else if (minIdx < separatedSyllables.length - 1) {
-          separatedSyllables[minIdx + 1] = separatedSyllables[minIdx].concat(separatedSyllables[minIdx + 1]);
-          separatedSyllables.splice(minIdx, 1);
-        } else break;
-      }
-
+      const N = allSentenceSyllables.length;
       userSyllableCurves = [];
-
-      for (let s = 0; s < totalSyllablesCount; s++) {
-        let block = separatedSyllables[s] || [];
-        let tones = block.map(b => b.tone);
-
-        if (tones.length >= 4) {
-          const cut = Math.max(1, Math.floor(tones.length * 0.04));
-          tones = tones.slice(cut, tones.length - cut);
-
-          // 만약 기준 음절이 1성인 경우, 4.85도 기준선 부근으로 피치 상향 보정(Top Alignment)
-          const targetSyl = allSentenceSyllables[s];
-          if (targetSyl && targetSyl.actualTone === 1) {
-            const avgVal = tones.reduce((a, b) => a + b, 0) / tones.length;
-            if (avgVal < 4.80) {
-              const boost = 4.85 - avgVal;
-              tones = tones.map(v => Math.min(4.90, v + boost * 0.85));
-            }
-          }
-
-          userSyllableCurves.push(simplifySyllableToToneCurve(tones));
-        } else {
-          const guideFallback = allSentenceSyllables[s] && allSentenceSyllables[s].curvePoints 
-            ? allSentenceSyllables[s].curvePoints[0] 
-            : 4.85;
-          userSyllableCurves.push(resampleSegment([guideFallback, guideFallback], 28));
-        }
-      }
+      if (N === 0 || rawFrameStream.length === 0) return;
+      const sylTones = analyzeUtterance(rawFrameStream, N, true);
+      userSyllableCurves = sylTones.map(t => t.length ? simplifySyllableToToneCurve(t) : []);
     }
 
     function resampleSegment(arr, targetLen) {
@@ -1280,19 +1301,19 @@
           totalScore += dotScore;
           comparedCount++;
         } else {
-          const resampledGuide = resampleSegment(guideSyl.curvePoints, userCurve.length);
-          let slopeErrors = [];
-          for (let k = 0; k < userCurve.length - 1; k++) {
-            const guideSlope = resampledGuide[k + 1] - resampledGuide[k];
-            const userSlope = userCurve[k + 1] - userCurve[k];
-            slopeErrors.push(Math.abs(guideSlope - userSlope));
+          // 높이(절대 위치) 오차와 모양(평균 제거 후) 오차를 함께 평가
+          const g = resampleSegment(guideSyl.curvePoints, userCurve.length);
+          const n = g.length;
+          const gMean = g.reduce((x, y) => x + y, 0) / n;
+          const uMean = userCurve.reduce((x, y) => x + y, 0) / n;
+          let se = 0, seC = 0;
+          for (let k = 0; k < n; k++) {
+            se += (userCurve[k] - g[k]) ** 2;
+            seC += ((userCurve[k] - uMean) - (g[k] - gMean)) ** 2;
           }
-          const avgSlopeError = slopeErrors.reduce((a, b) => a + b, 0) / slopeErrors.length;
-          const corr = calcPearsonCorrelation(resampledGuide, userCurve);
-          let slopeScore = Math.max(0, 100 - avgSlopeError * 160);
-          let shapeScore = Math.max(0, (corr + 1) * 50);
-
-          totalScore += (slopeScore * 0.6 + shapeScore * 0.4);
+          const levelScore = Math.max(0, 100 - 40 * Math.sqrt(se / n));
+          const shapeScore = Math.max(0, 100 - 60 * Math.sqrt(seC / n));
+          totalScore += levelScore * 0.5 + shapeScore * 0.5;
           comparedCount++;
         }
       }
